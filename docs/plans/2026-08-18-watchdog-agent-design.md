@@ -79,9 +79,12 @@ API-организации с pay-per-use биллингом нет. Usage/Cost 
 
 6. Отправь сообщение в Telegram через Bot API:
 
-   curl -s "https://api.telegram.org/bot8651950364:AAHgf7eAY76yGLBmSkodP-cHVrKeyR2dYkU/sendMessage" \
+   curl -s "https://api.telegram.org/bot<ТОКЕН_БОТА>/sendMessage" \
      -d "chat_id=-1004369832565" \
      --data-urlencode "text@-" <<< "$MESSAGE"
+
+   (токен подставь сам при заполнении формы Routine — не хранить его в
+   этом файле/репозитории, он публичный)
 
    Если аномалий нет:
    🛡️ Надзор: всё в норме. {список агентов и их количество запусков за сутки}
