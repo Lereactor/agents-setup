@@ -80,7 +80,7 @@ Environment variables/Secrets Routine.
 6. Залогируй свой запуск для агента-надзирателя (см.
    `2026-08-18-watchdog-agent-design.md`):
 
-   curl -s -X POST "${SHEETS_LOG_URL}" \
+   curl -s -L -X POST "${SHEETS_LOG_URL}" \
      -d "token=${SHEETS_LOG_TOKEN}" \
      -d "agent=news-digest" \
      -d "status=success" \
