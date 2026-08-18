@@ -1,5 +1,6 @@
 tg_api.txt
 gh_pat.txt
+sheets_api.txt
 *.env
 .env
 *.png
