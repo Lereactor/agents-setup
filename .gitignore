@@ -5,3 +5,7 @@ sheets_api.txt
 .env
 *.png
 *.PNG
+*.jpg
+*.jpeg
+*.JPG
+*.JPEG
