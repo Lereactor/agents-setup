@@ -1,0 +1,9 @@
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.venv/
+data/traces/*.jsonl
+frontend/node_modules/
+frontend/dist/
+frontend/*.log
+backend/*.log

@@ -9,3 +9,10 @@ sheets_api.txt
 *.jpeg
 *.JPG
 *.JPEG
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/

@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/api/client.ts","./src/components/eventstream.tsx","./src/components/sidebar.tsx","./src/components/toolbar.tsx","./src/components/topbar.tsx","./src/events/types.ts","./src/graph/customnode.tsx","./src/graph/graphcanvas.tsx","./src/graph/layout.ts"],"version":"5.9.3"}

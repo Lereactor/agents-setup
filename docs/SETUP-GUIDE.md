@@ -242,3 +242,78 @@ API-триггером такого пункта в UI замечено не б�
 заново, плюс обновить секреты в Cloudflare Worker (раздел 6.1, шаг 2) с
 новым `fire`-URL и токеном. Не тестировать одну Routine избыточно много
 раз подряд вперемешку (личка/группа/синтетика) — это и забивает сессию.
+
+### 6.6 Агент «grocery» (ВкусВилл, через официальный MCP)
+
+Полный дизайн — `docs/plans/2026-09-17-grocery-agent-design.md`. Пятый
+агент в системе, переиспользует Cloudflare Worker и Telegram-бот из
+разделов 6.1-6.2 (webhook уже настроен, второй раз регистрировать не
+нужно) — новое здесь только: второй Routine, `.mcp.json`, Allowed domains.
+
+1. **`.mcp.json`** уже в корне репозитория:
+   ```json
+   {"mcpServers": {"vkusvill": {"type": "http", "url": "https://mcp.vkusvill.ru/mcp"}}}
+   ```
+   Если сервер потребует ключ (не проверено до первого реального вызова) —
+   добавить `"headers": {"Authorization": "Bearer ${VKUSVILL_TOKEN}"}` и
+   переменную `VKUSVILL_TOKEN` в Routine (шаг 4 ниже).
+
+2. **Routine `grocery`**: claude.ai/code/routines → New Routine, подключить
+   тот же репозиторий, промпт — из дизайн-документа. Триггер — **API**, как
+   у `shopping` (раздел 6.3, п.3) — скопировать `fire`-URL и токен.
+
+3. **Allowed domains**: в настройках Routine `grocery` (сетевой доступ
+   облачного окружения) добавить `mcp.vkusvill.ru` — без этого Routine не
+   сможет обратиться к MCP-серверу, даже если `.mcp.json` подключён верно.
+
+4. **Run now** → ⋮ → **Edit environment** → добавить `TELEGRAM_BOT_TOKEN`,
+   `SHEETS_LOG_URL`, `SHEETS_LOG_TOKEN` (те же значения, что у `shopping`).
+
+5. **Обновить Cloudflare Worker** (тот же воркер `shopping-listener`, новые
+   секреты в дополнение к существующим — повторить раздел 6.1 шаг 2 с
+   `worker-metadata.json`, добавив в `bindings`):
+   ```json
+   {"type": "plain_text", "name": "ROUTINE_TRIGGER_URL_GROCERY", "text": "<fire-URL из шага 2>"},
+   {"type": "secret_text", "name": "ROUTINE_TRIGGER_TOKEN_GROCERY", "text": "<токен из шага 2>"}
+   ```
+   KV namespace и остальные bindings — те же, что уже есть, не трогать.
+   Код воркера (`scripts/shopping-listener-worker.js`) уже обновлён: сначала
+   проверяет корни `вкусвилл`/`продукт` (→ `grocery`), затем `куп`/`заказ`/
+   `найд`/`buy`/`order`/`find` (→ `shopping`) — сообщение уходит только
+   одному агенту, даже если совпали оба набора слов.
+
+6. **Проверка**:
+   - «вкусвилл, найди овсянку без сахара» в группе → reply с товарами и
+     ссылкой на корзину
+   - фото товара с подписью «вкусвилл, найди такое» → reply на основе фото
+   - «вкусвилл сегодня дорогой» → тишина, в логе `status=skipped`
+   - «вкусвилл, купи молоко» → сработал только `grocery` (проверить по
+     логу Sheets, что не было параллельного запуска `shopping`)
+   - тапнуть ссылку на корзину с телефона → должна открыться корзина в
+     приложении ВкусВилл с нужными товарами
+
+## 7. AI Agent Live Visualization (отдельная локальная демка, не Telegram)
+
+Полный дизайн — `docs/plans/2026-08-26-ai-agent-visualization-design.md`,
+исходная спецификация — `AI_Agent_Visualization_Instruction.docx` в корне
+репозитория. Код — `ai-agent-live/`, подробный README там же.
+
+В отличие от разделов 1-6, никак не связана с Telegram/Routines/Sheets —
+локальный FastAPI-бэкенд + React-фронтенд, показывающий realtime-граф
+выполнения мультиагентного workflow (Supervisor → Researcher ∥ Analyst →
+Reviewer → Writer).
+
+1. Backend: Python 3.11+, `pip install -r ai-agent-live/backend/requirements.txt`,
+   скопировать `.env.example` → `.env` (по умолчанию `MOCK_MODE=true` —
+   работает без API-ключа)
+2. Frontend: нужен **Node.js 18+** — на машине, где проектировался этот
+   раздел, Node не был установлен вообще; поставить перед первым запуском
+   (`winget install OpenJS.NodeJS.LTS` на Windows, либо nodejs.org)
+3. Запуск: `ai-agent-live/start_windows.bat` (или `start_mac_linux.sh`) из
+   корня `ai-agent-live/`, либо вручную backend/frontend в двух терминалах
+   — см. README там же
+4. Открыть `http://127.0.0.1:5173`, нажать **Start Demo** — должен пройти
+   полный workflow за ~10-20 секунд без единого внешнего API-ключа
+5. Известные ограничения (LangGraph не установлен из-за SSL-ошибки
+   pip в этом окружении, frontend не смок-тестирован при написании) — см.
+   README `ai-agent-live/README.md`, раздел «Известные ограничения»

@@ -1,4 +1,6 @@
-// Cloudflare Worker — слушатель Telegram-вебхука для агента-покупок.
+// Cloudflare Worker — общий слушатель Telegram-вебхука для агентов-покупок
+// (shopping: Ozon/Я.Маркет, grocery: ВкусВилл). Файл не переименован в
+// мульти-агентный, чтобы не трогать уже настроенный Telegram-вебхук.
 // Заменяет scripts/shopping-listener.gs: Google Apps Script Web App всегда
 // отвечает на POST через 302-редирект на script.googleusercontent.com, а
 // Telegram НЕ следует за редиректами при доставке в вебхук — считает такую
@@ -12,8 +14,10 @@
 // файл как код воркера → Deploy → скопировать URL (*.workers.dev).
 //
 // Секреты — Settings → Variables and Secrets (тип Secret, не Text):
-//   ROUTINE_TRIGGER_URL   — URL fire-эндпоинта Routine "Shopping"
-//   ROUTINE_TRIGGER_TOKEN — Bearer-токен для этого эндпоинта
+//   ROUTINE_TRIGGER_URL            — URL fire-эндпоинта Routine "Shopping"
+//   ROUTINE_TRIGGER_TOKEN          — Bearer-токен для этого эндпоинта
+//   ROUTINE_TRIGGER_URL_GROCERY    — URL fire-эндпоинта Routine "grocery" (ВкусВилл)
+//   ROUTINE_TRIGGER_TOKEN_GROCERY  — Bearer-токен для этого эндпоинта
 //
 // Дедупликация по update_id — через Workers KV (Storage & Databases → KV →
 // создать namespace → привязать к воркеру в Settings → Bindings, переменная
@@ -25,7 +29,10 @@
 //     -d "url=<URL воркера>" \
 //     -d 'allowed_updates=["message","business_message"]'
 
-const TRIGGER_WORDS = ['куп', 'заказ', 'найд', 'buy', 'order', 'find'];
+// Порядок важен: grocery проверяется первым, чтобы "вкусвилл, купи молоко"
+// уходило только в grocery, а не в оба агента разом.
+const GROCERY_TRIGGER_WORDS = ['вкусвилл', 'продукт'];
+const SHOPPING_TRIGGER_WORDS = ['куп', 'заказ', 'найд', 'buy', 'order', 'find'];
 
 function json(obj) {
   return new Response(JSON.stringify(obj), {
@@ -34,10 +41,18 @@ function json(obj) {
   });
 }
 
-function hasTriggerWord(text) {
+function matchesTriggerWords(text, roots) {
   if (!text) return false;
   const lower = text.toLowerCase();
-  return TRIGGER_WORDS.some((root) => lower.includes(root));
+  return roots.some((root) => lower.includes(root));
+}
+
+// Решает, какому Routine адресовать сообщение (или null, если ни один
+// набор триггер-слов не совпал).
+function detectTarget(text) {
+  if (matchesTriggerWords(text, GROCERY_TRIGGER_WORDS)) return 'grocery';
+  if (matchesTriggerWords(text, SHOPPING_TRIGGER_WORDS)) return 'shopping';
+  return null;
 }
 
 function largestPhotoFileId(photoArray) {
@@ -61,11 +76,13 @@ function extractCandidate(message) {
   return { text: '', photoFileId: '' };
 }
 
-async function triggerRoutine(env, params) {
-  const resp = await fetch(env.ROUTINE_TRIGGER_URL, {
+async function triggerRoutine(env, target, params) {
+  const url = target === 'grocery' ? env.ROUTINE_TRIGGER_URL_GROCERY : env.ROUTINE_TRIGGER_URL;
+  const token = target === 'grocery' ? env.ROUTINE_TRIGGER_TOKEN_GROCERY : env.ROUTINE_TRIGGER_TOKEN;
+  const resp = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: 'Bearer ' + env.ROUTINE_TRIGGER_TOKEN,
+      Authorization: 'Bearer ' + token,
       'anthropic-version': '2023-06-01',
       'anthropic-beta': 'experimental-cc-routine-2026-04-01',
       'Content-Type': 'application/json'
@@ -117,7 +134,8 @@ export default {
     }
 
     const candidate = extractCandidate(message);
-    if (!hasTriggerWord(candidate.text)) {
+    const target = detectTarget(candidate.text);
+    if (!target) {
       return json({ ok: true, skipped: 'no trigger word' });
     }
 
@@ -135,15 +153,15 @@ export default {
     // используется быстрый путь ниже.
     const isDebug = new URL(request.url).searchParams.get('debug') === '1';
     if (isDebug) {
-      const fireResult = await triggerRoutine(env, params);
-      return json({ ok: true, triggered: true, fire_status: fireResult.status, fire_body: fireResult.body });
+      const fireResult = await triggerRoutine(env, target, params);
+      return json({ ok: true, triggered: true, target, fire_status: fireResult.status, fire_body: fireResult.body });
     }
 
     // Отвечаем Telegram сразу (200), а сам fire-вызов (может занимать много
     // секунд) выполняется в фоне через waitUntil — именно это убирает
     // первопричину повторных доставок, а не только дедуп.
-    ctx.waitUntil(triggerRoutine(env, params));
+    ctx.waitUntil(triggerRoutine(env, target, params));
 
-    return json({ ok: true, triggered: true });
+    return json({ ok: true, triggered: true, target });
   }
 };
