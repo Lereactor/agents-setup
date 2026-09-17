@@ -51,10 +51,18 @@ function json(obj) {
   });
 }
 
+// Whisper иногда пишет составные слова с пробелом ("Вкус Вилл" вместо
+// "вкусвилл") — убираем всё, кроме букв/цифр, перед сравнением, чтобы
+// такие разночтения не ломали матч триггер-слова. Применяется одинаково
+// и к тексту, и к расшифровке голосового.
+function normalizeForMatching(text) {
+  return text.toLowerCase().replace(/[^a-zа-яё0-9]/g, '');
+}
+
 function matchesTriggerWords(text, roots) {
   if (!text) return false;
-  const lower = text.toLowerCase();
-  return roots.some((root) => lower.includes(root));
+  const normalized = normalizeForMatching(text);
+  return roots.some((root) => normalized.includes(root));
 }
 
 // Решает, какому Routine адресовать сообщение (или null, если ни один
@@ -92,6 +100,19 @@ function extractCandidate(message) {
   return { text: '', photoFileId: '', voiceFileId: '' };
 }
 
+// whisper-large-v3-turbo на Workers AI требует 'audio' как base64-строку
+// (не массив байт, вопреки примерам для старой модели @cf/openai/whisper) —
+// см. официальный тьюториал по chunking-транскрипции. btoa вместо Buffer,
+// т.к. Buffer требует compatibility flag nodejs_compat, которого нет.
+function bytesToBase64(bytes) {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
 // Скачивает голосовое (.oga, Opus/OGG) через Bot API и прогоняет через
 // Whisper на Workers AI. language: 'ru' — форсируем русский, чтобы модель
 // не тратила время на автоопределение языка и не путала короткие фразы
@@ -112,9 +133,9 @@ async function transcribeVoice(env, fileId) {
     throw new Error('voice file download failed: ' + audioResp.status);
   }
 
-  const audioBytes = Array.from(new Uint8Array(await audioResp.arrayBuffer()));
+  const audio = bytesToBase64(new Uint8Array(await audioResp.arrayBuffer()));
   const result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
-    audio: audioBytes,
+    audio,
     language: 'ru'
   });
 
