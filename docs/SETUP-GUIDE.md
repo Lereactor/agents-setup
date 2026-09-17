@@ -258,16 +258,31 @@ API-триггером такого пункта в UI замечено не б�
    добавить `"headers": {"Authorization": "Bearer ${VKUSVILL_TOKEN}"}` и
    переменную `VKUSVILL_TOKEN` в Routine (шаг 4 ниже).
 
-2. **Routine `grocery`**: claude.ai/code/routines → New Routine, подключить
-   тот же репозиторий, промпт — из дизайн-документа. Триггер — **API**, как
-   у `shopping` (раздел 6.3, п.3) — скопировать `fire`-URL и токен.
+2. **Routine `grocery`**: claude.ai/code/routines → New Routine, промпт — из
+   дизайн-документа. **Select repositories — обязательно выбрать
+   `Lereactor/agents-setup`**: без прикреплённого репозитория `.mcp.json` не
+   попадает в облачную сессию и MCP не подключится вообще (у `shopping` и
+   `watchdog` репозиторий НЕ выбран — им он не был нужен, это единственный
+   агент, где он нужен). **Select an environment — выбрать то же окружение,
+   что у `shopping`/`watchdog`/`news-digest`** (обычно называется `Default`),
+   не создавать новое — тогда переменные окружения подхватятся автоматически,
+   см. п.4. Триггер — **API**, как у `shopping` — скопировать `fire`-URL и
+   токен.
 
-3. **Allowed domains**: в настройках Routine `grocery` (сетевой доступ
-   облачного окружения) добавить `mcp.vkusvill.ru` — без этого Routine не
-   сможет обратиться к MCP-серверу, даже если `.mcp.json` подключён верно.
+3. **Allowed domains**: это настройка не самой Routine, а её **окружения**
+   (одно окружение обычно общее у всех агентов) — на странице роутины
+   ✏️ Edit routine → под полем промпта иконка облака с именем окружения →
+   навести на окружение в списке → иконка шестерёнки справа → в диалоге
+   Update cloud environment: Network access → **Custom** → в Allowed domains
+   добавить `mcp.vkusvill.ru` (галочку «Also include default list» оставить
+   включённой) → Save changes. Без этого шага Routine не достучится до MCP,
+   даже если `.mcp.json` подключён верно.
 
-4. **Run now** → ⋮ → **Edit environment** → добавить `TELEGRAM_BOT_TOKEN`,
-   `SHEETS_LOG_URL`, `SHEETS_LOG_TOKEN` (те же значения, что у `shopping`).
+4. **Переменные окружения**: `TELEGRAM_BOT_TOKEN`, `SHEETS_LOG_URL`,
+   `SHEETS_LOG_TOKEN` привязаны к окружению, а не к конкретной Routine — если
+   в п.2 выбрано то же окружение, что у `shopping`, копировать ничего не
+   нужно, они уже доступны. Проверить: открыть сессию (Run now) → в логе
+   первого реального вызова видно, подставляются ли переменные корректно.
 
 5. **Обновить Cloudflare Worker** (тот же воркер `shopping-listener`, новые
    секреты в дополнение к существующим — повторить раздел 6.1 шаг 2 с
