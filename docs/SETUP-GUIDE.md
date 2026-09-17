@@ -243,79 +243,96 @@ API-триггером такого пункта в UI замечено не б�
 новым `fire`-URL и токеном. Не тестировать одну Routine избыточно много
 раз подряд вперемешку (личка/группа/синтетика) — это и забивает сессию.
 
-### 6.6 Агент «grocery» (ВкусВилл, через официальный MCP)
+### 6.6 Агент «grocery» (ВкусВилл, через официальный MCP как account-коннектор)
 
 Полный дизайн — `docs/plans/2026-09-17-grocery-agent-design.md`. Пятый
 агент в системе, переиспользует Cloudflare Worker и Telegram-бот из
 разделов 6.1-6.2 (webhook уже настроен, второй раз регистрировать не
-нужно) — новое здесь только: второй Routine, `.mcp.json`, Allowed domains.
+нужно). **Важно**: изначальный план был через `.mcp.json` в репозитории —
+работал, но каждый вызов MCP-инструмента сопровождался permission prompt с
+непредсказуемой задержкой (от секунд до нескольких минут, иногда реально
+зависало и требовало ручного клика Allow — см. Инцидент 3 в дизайн-доке).
+**Финальная рабочая схема — account-level коннектор**, без этой проблемы.
 
-1. **`.mcp.json`** уже в корне репозитория:
-   ```json
-   {"mcpServers": {"vkusvill": {"type": "http", "url": "https://mcp.vkusvill.ru/mcp"}}}
-   ```
-   Если сервер потребует ключ (не проверено до первого реального вызова) —
-   добавить `"headers": {"Authorization": "Bearer ${VKUSVILL_TOKEN}"}` и
-   переменную `VKUSVILL_TOKEN` в Routine (шаг 4 ниже).
+1. **Добавить коннектор**: claude.ai/customize/connectors → Add custom
+   connector → URL `https://mcp.vkusvill.ru/mcp` → сохранить, назвать
+   (например `Vkusvill`). Ключ/авторизация не потребовались.
 
 2. **Routine `grocery`**: claude.ai/code/routines → New Routine, промпт — из
-   дизайн-документа. **Select repositories — обязательно выбрать
-   `Lereactor/agents-setup`**: без прикреплённого репозитория `.mcp.json` не
-   попадает в облачную сессию и MCP не подключится вообще (у `shopping` и
-   `watchdog` репозиторий НЕ выбран — им он не был нужен, это единственный
-   агент, где он нужен). **Select an environment — выбрать то же окружение,
-   что у `shopping`/`watchdog`/`news-digest`** (обычно называется `Default`),
-   не создавать новое — тогда переменные окружения подхватятся автоматически,
-   см. п.4. Триггер — **API**, как у `shopping` — скопировать `fire`-URL и
-   токен.
+   дизайн-документа. **Select an environment — выбрать то же окружение,
+   что у `shopping`/`watchdog`/`news-digest`** (обычно `Default`) — тогда
+   `TELEGRAM_BOT_TOKEN`/`SHEETS_LOG_URL`/`SHEETS_LOG_TOKEN` подхватятся
+   автоматически (они привязаны к окружению, не к конкретной Routine).
+   Репозиторий выбирать необязательно (нужен был только для `.mcp.json`,
+   которого в финальной схеме нет). В разделе **Connectors** формы —
+   убедиться, что новый коннектор включён. Триггер — **API**, как у
+   `shopping` — скопировать `fire`-URL и токен.
 
-3. **Allowed domains**: это настройка не самой Routine, а её **окружения**
-   (одно окружение обычно общее у всех агентов) — на странице роутины
-   ✏️ Edit routine → под полем промпта иконка облака с именем окружения →
-   навести на окружение в списке → иконка шестерёнки справа → в диалоге
-   Update cloud environment: Network access → **Custom** → в Allowed domains
-   добавить `mcp.vkusvill.ru` (галочку «Also include default list» оставить
-   включённой) → Save changes. Без этого шага Routine не достучится до MCP,
-   даже если `.mcp.json` подключён верно.
+3. **Проставить `permitted_tools` на коннекторе** — без этого шага
+   поведение нестабильно: иногда быстро, иногда permission prompt на
+   минуты. Пока нет отдельного UI для этого (на момент написания) — делается
+   через `RemoteTrigger update` (Claude может выполнить это сам, если у него
+   есть доступ к API) телом вида:
+   ```json
+   {"mcp_connections": [
+     {"connector_uuid": "<uuid визуализации/др. коннекторов, если есть — сохранить как есть>", "name": "...", "permitted_tools": [], "tool_policy_overrides": [], "url": "..."},
+     {"connector_uuid": "<uuid коннектора Vkusvill>", "name": "Vkusvill", "permitted_tools": [
+       "vkusvill_products_search", "vkusvill_product_details", "vkusvill_product_barcode",
+       "vkusvill_product_analogs", "vkusvill_products_discount", "vkusvill_cart_link_create",
+       "vkusvill_recipes", "vkusvill_shops"
+     ], "tool_policy_overrides": [], "url": "https://mcp.vkusvill.ru/mcp"}
+   ]}
+   ```
+   Важно: `mcp_connections` — это полный список, нужно включить в тело ВСЕ
+   существующие коннекторы роутины (не только vkusvill), иначе рискуешь
+   стереть остальные — сначала прочитать текущее состояние через
+   `RemoteTrigger get`.
 
-4. **Переменные окружения**: `TELEGRAM_BOT_TOKEN`, `SHEETS_LOG_URL`,
-   `SHEETS_LOG_TOKEN` привязаны к окружению, а не к конкретной Routine — если
-   в п.2 выбрано то же окружение, что у `shopping`, копировать ничего не
-   нужно, они уже доступны. Проверить: открыть сессию (Run now) → в логе
-   первого реального вызова видно, подставляются ли переменные корректно.
+4. **Убедиться, что нет дублей**: если в репозитории (не важно, какой
+   именно) остался `.mcp.json` с тем же сервером `vkusvill` — обязательно
+   очистить (`{"mcpServers": {}}`) и запушить. Иначе агент видит ДВА набора
+   инструментов (`mcp__vkusvill__*` из `.mcp.json` без permitted_tools, и
+   `mcp__Vkusvill__*` из коннектора с permitted_tools) и непредсказуемо
+   выбирает то один, то другой — симптом «то мгновенно, то снова просит
+   permission», без видимой закономерности.
 
 5. **Обновить Cloudflare Worker** (тот же воркер `shopping-listener`, новые
-   секреты в дополнение к существующим — повторить раздел 6.1 шаг 2 с
-   `worker-metadata.json`, добавив в `bindings`):
-   ```json
-   {"type": "plain_text", "name": "ROUTINE_TRIGGER_URL_GROCERY", "text": "<fire-URL из шага 2>"},
-   {"type": "secret_text", "name": "ROUTINE_TRIGGER_TOKEN_GROCERY", "text": "<токен из шага 2>"}
+   секреты в дополнение к существующим). Проще всего через отдельный
+   `/secrets` эндпоинт Cloudflare API (не через полный редеплой bindings —
+   так безопаснее, не рискует существующим секретом `shopping`):
+   ```bash
+   curl -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/shopping-listener/secrets" \
+     -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+     -d '{"name":"ROUTINE_TRIGGER_TOKEN_GROCERY","text":"<токен из шага 2>","type":"secret_text"}'
+   curl -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/shopping-listener/secrets" \
+     -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+     -d '{"name":"ROUTINE_TRIGGER_URL_GROCERY","text":"<fire-URL из шага 2>","type":"secret_text"}'
    ```
-   KV namespace и остальные bindings — те же, что уже есть, не трогать.
-   Код воркера (`scripts/shopping-listener-worker.js`) уже обновлён: сначала
-   проверяет корни `вкусвилл`/`продукт` (→ `grocery`), затем `куп`/`заказ`/
-   `найд`/`buy`/`order`/`find` (→ `shopping`) — сообщение уходит только
-   одному агенту, даже если совпали оба набора слов.
+   (URL тоже как `secret_text` — эндпоинт `/secrets` не принимает
+   `plain_text`, разницы для кода воркера нет.) Отдельно — обновить сам код
+   воркера (маршрутизация `вкусвилл`/`продукт` → grocery, остальное →
+   shopping) через:
+   ```bash
+   curl -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/shopping-listener/content" \
+     -H "Authorization: Bearer $CF_TOKEN" \
+     -F "metadata={\"main_module\":\"shopping-listener-worker.js\"};type=application/json" \
+     -F "shopping-listener-worker.js=@scripts/shopping-listener-worker.js;type=application/javascript+module"
+   ```
+   Этот `/content` эндпоинт трогает только код, bindings/секреты не задевает
+   — безопаснее, чем полный `PUT .../scripts/{name}` из раздела 6.1.
 
 6. **Проверка**:
    - «вкусвилл, найди овсянку без сахара» в группе → reply с товарами и
-     ссылкой на корзину
+     ссылкой на корзину, **без задержек** (при правильно настроенном
+     `permitted_tools` — секунды, не минуты)
    - фото товара с подписью «вкусвилл, найди такое» → reply на основе фото
    - «вкусвилл сегодня дорогой» → тишина, в логе `status=skipped`
    - «вкусвилл, купи молоко» → сработал только `grocery` (проверить по
      логу Sheets, что не было параллельного запуска `shopping`)
    - тапнуть ссылку на корзину с телефона → должна открыться корзина в
      приложении ВкусВилл с нужными товарами
-
-   **Важно про скорость**: первый вызов `mcp__vkusvill__*` в сессии почти
-   всегда идёт с задержкой (от ~13 сек до нескольких минут — платформенная
-   особенность project-scoped MCP, ждать, не считать зависанием, подробнее
-   в `2026-09-17-grocery-agent-design.md`, Инцидент 3). Сложные запросы
-   (рецепты — несколько MCP-вызовов подряд) могут занимать 3-6 минут.
-
-**Примечание**: `.claude/settings.json` в репозитории содержит
-`permissions.allow: ["mcp__vkusvill__*"]` — не даёт стопроцентной гарантии
-убрать задержку из п.6, но безвреден, оставлен на будущее.
+   - если снова видишь permission prompt — проверить пункт 4 (дубли
+     `.mcp.json`)
 
 ## 7. AI Agent Live Visualization (отдельная локальная демка, не Telegram)
 
