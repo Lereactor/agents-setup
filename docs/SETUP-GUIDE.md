@@ -334,6 +334,54 @@ API-триггером такого пункта в UI замечено не б�
    - если снова видишь permission prompt — проверить пункт 4 (дубли
      `.mcp.json`)
 
+### 6.7 Голосовые сообщения (распознавание речи → та же маршрутизация)
+
+Полный дизайн — `docs/plans/2026-09-18-voice-trigger-design.md`. Расширяет
+тот же воркер `shopping-listener` (6.1): голосовые сообщения скачиваются,
+распознаются через Whisper на Cloudflare Workers AI и дальше маршрутизируются
+теми же триггер-словами, что и текст (6.6). Плюс — для ВСЕХ сообщений
+(текст/фото/голос) теперь сразу приходит подтверждение получения, до ответа
+самого агента.
+
+1. **Добавить Workers AI binding** — dash.cloudflare.com → Workers & Pages →
+   `shopping-listener` → Settings → Bindings → Add → **Workers AI** →
+   переменная окружения `AI` → Save and deploy. Через дашборд, не через API —
+   не хотим рисковать существующими секретами `ROUTINE_TRIGGER_*`, отправляя
+   полный `PUT` без их значений (см. «Новые требования к инфраструктуре» в
+   дизайн-доке).
+
+2. **Добавить секрет `TELEGRAM_BOT_TOKEN`** (тот же токен `@LAgentsControl_bot`,
+   что уже используется для `setWebhook`) — через `/secrets`-эндпоинт, как и
+   grocery-токены в 6.6, безопасно для остальных bindings:
+   ```bash
+   curl -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/shopping-listener/secrets" \
+     -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+     -d '{"name":"TELEGRAM_BOT_TOKEN","text":"<токен бота>","type":"secret_text"}'
+   ```
+
+3. **Обновить код воркера** (уже содержит новую логику после этого коммита) —
+   тем же безопасным `/content`-эндпоинтом, что и в 6.6 шаге 5:
+   ```bash
+   curl -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/shopping-listener/content" \
+     -H "Authorization: Bearer $CF_TOKEN" \
+     -F "metadata={\"main_module\":\"shopping-listener-worker.js\"};type=application/json" \
+     -F "shopping-listener-worker.js=@scripts/shopping-listener-worker.js;type=application/javascript+module"
+   ```
+   `allowed_updates` в `setWebhook` менять не нужно — `voice` уже приходит
+   внутри обычного `message`/`business_message`.
+
+4. **Проверка** (через `?debug=1`, как в 6.4/6.6 — дожидается ответа и
+   возвращает тело целиком):
+   - Голосовое "вкусвилл, купи хлеб" → ack в чате с расшифровкой, `target:
+     grocery`, запускается grocery Routine
+   - Голосовое без триггер-слова ("привет, как дела") → ack "не понял, кому
+     адресовано" с расшифровкой, Routine НЕ запускается
+   - Голосовое с шумом/тишиной → сообщение о нераспознавании, не падает с 500
+   - Обычное текстовое "вкусвилл, купи молоко" → теперь ПЕРЕД ответом
+     grocery-агента дополнительно приходит "✅ Принял, работаю…"
+   - Повторная доставка того же `update_id` (KV-дедуп) — ack не должен
+     продублироваться
+
 ## 7. AI Agent Live Visualization (отдельная локальная демка, не Telegram)
 
 Полный дизайн — `docs/plans/2026-08-26-ai-agent-visualization-design.md`,
