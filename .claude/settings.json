@@ -1,7 +1,23 @@
 {
   "permissions": {
     "allow": [
-      "mcp__vkusvill__*"
+      "mcp__vkusvill__*",
+      "Bash(git commit *)",
+      "Bash(git push *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/mcp-watch-hook.sh",
+            "shell": "bash",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   }
 }
