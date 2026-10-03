@@ -1,4 +1,5 @@
 import type { AgentEvent } from '../events/types'
+import type { LogResponse } from '../myagents/types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://127.0.0.1:8000'
 const WS_BASE = API_BASE.replace(/^http/, 'ws')
@@ -36,6 +37,18 @@ export async function fetchRunEvents(runId: string): Promise<AgentEvent[]> {
   const res = await fetch(`${API_BASE}/runs/${runId}/events`)
   if (!res.ok) throw new Error(`fetch_run_events failed: ${res.status}`)
   return res.json() as Promise<AgentEvent[]>
+}
+
+/** Лог реальных Routine-агентов (вкладка «Мои агенты»). Сетевую ошибку отдаёт как
+ * {error: 'network'}, чтобы вкладка показала понятный статус, а не падала. */
+export async function fetchMyAgentsLog(): Promise<LogResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/my-agents/log`)
+    if (!res.ok) return { error: 'network' }
+    return (await res.json()) as LogResponse
+  } catch {
+    return { error: 'network' }
+  }
 }
 
 /** Открывает WS на конкретный run_id. Возвращает функцию отключения. */
