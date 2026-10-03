@@ -86,6 +86,9 @@ async def ws_run(websocket: WebSocket, run_id: str) -> None:
             event = await queue.get()
             await websocket.send_text(event.model_dump_json())
             if event.type == EventType.RUN_COMPLETED:
+                # Явный close-фрейм — иначе клиент видит обрыв соединения вместо
+                # нормального завершения.
+                await websocket.close()
                 break
     except WebSocketDisconnect:
         pass
