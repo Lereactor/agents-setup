@@ -4,7 +4,8 @@
 // Секрет хранится в Project Settings > Script Properties (SECRET_TOKEN), не в коде.
 //
 // Лист должен называться "log" и иметь шапку в первой строке:
-// timestamp_utc | agent | status
+// timestamp_utc | agent | status | detail | run_id
+// (detail и run_id добавлены 2026-10-04; у старых строк эти колонки пустые)
 
 const SHEET_NAME = 'log';
 
@@ -18,7 +19,9 @@ function json_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// Запись строки лога: POST agent=<имя>&status=success|error&timestamp=<ISO8601, опционально>
+// Запись строки лога:
+// POST agent=<имя>&status=started|success|error|skipped
+//      &timestamp=<ISO8601, опционально>&detail=<строка, опционально>&run_id=<id, опционально>
 function doPost(e) {
   const params = e.parameter || {};
   if (!checkToken_(params)) return json_({ error: 'unauthorized' });
@@ -26,7 +29,10 @@ function doPost(e) {
 
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   const timestamp = params.timestamp || new Date().toISOString();
-  sheet.appendRow([timestamp, params.agent, params.status]);
+  // Одна строка в ячейке, без переносов — иначе лог неудобно читать глазами.
+  const detail = String(params.detail || '').replace(/[\r\n]+/g, ' ').slice(0, 200);
+  const runId = String(params.run_id || '').slice(0, 64);
+  sheet.appendRow([timestamp, params.agent, params.status, detail, runId]);
   return json_({ ok: true });
 }
 
