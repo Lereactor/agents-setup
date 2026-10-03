@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 FINAL_STATUSES = {"success", "error", "skipped"}
 STALE_AFTER = timedelta(minutes=30)
+LEGACY_DUPLICATE_WINDOW = timedelta(seconds=30)
 
 
 def _parse_ts(value) -> datetime | None:
@@ -30,13 +31,22 @@ def _cell(row: list, index: int) -> str:
 
 def parse_rows(rows: list[list], now: datetime) -> list[dict]:
     groups: dict[str, dict] = {}
+    last_legacy: dict[tuple[str, str], datetime] = {}
     for index, row in enumerate(rows):
         timestamp = _parse_ts(_cell(row, 0))
         agent = _cell(row, 1)
         status = _cell(row, 2).lower()
         if timestamp is None or not agent or not status:
             continue  # шапка, пустые и битые строки
-        run_id = _cell(row, 4) or f"legacy-{index}"
+        run_id = _cell(row, 4)
+        if not run_id:
+            # Старые агенты слали лог через `curl -X POST`, получали «Error 411» после
+            # редиректа Google и повторяли запрос — одна запись дублировалась.
+            previous = last_legacy.get((agent, status))
+            last_legacy[(agent, status)] = timestamp
+            if previous and timestamp - previous <= LEGACY_DUPLICATE_WINDOW:
+                continue
+            run_id = f"legacy-{index}"
         group = groups.setdefault(run_id, {"agent": agent, "started": None, "final": None})
         entry = (timestamp, status, _cell(row, 3))
         if status == "started":

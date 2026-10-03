@@ -83,6 +83,26 @@ class ParseRowsTest(unittest.TestCase):
         ]
         self.assertEqual([r["run_id"] for r in parse_rows(rows, NOW)], ["a", "b"])
 
+    def test_legacy_duplicates_within_30s_are_merged(self):
+        # До 2026-10-04 агенты слали лог с `curl -X POST`, получали «Error 411» после
+        # редиректа и повторяли запрос — одна и та же запись появлялась дважды.
+        rows = [
+            HEADER[:3],
+            ["2026-10-03T05:08:55Z", "news-digest", "success"],
+            ["2026-10-03T05:09:06Z", "news-digest", "success"],
+            ["2026-10-03T05:09:20Z", "shopping", "success"],
+            ["2026-10-04T05:09:06Z", "news-digest", "success"],
+        ]
+        runs = parse_rows(rows, NOW)
+        self.assertEqual(
+            [(r["agent"], r["started_at"]) for r in runs],
+            [
+                ("news-digest", "2026-10-03T05:08:55Z"),
+                ("shopping", "2026-10-03T05:09:20Z"),
+                ("news-digest", "2026-10-04T05:09:06Z"),
+            ],
+        )
+
     def test_empty_input(self):
         self.assertEqual(parse_rows([], NOW), [])
 

@@ -91,6 +91,18 @@ cd frontend && npm run dev
 Открыть `http://127.0.0.1:5173`. Нажать **Start Demo** — без API-ключа
 (`MOCK_MODE=true` по умолчанию) должен пройти полный workflow за ~10-20 секунд.
 
+## Вкладка «Мои агенты»
+
+Открывается по умолчанию. Показывает реальных Telegram-агентов (`news-digest`,
+`watchdog`, `shopping`, `grocery`) — онлайн (кто работает прямо сейчас, с
+таймером) и исторически (тепловая карта 30 дней, лента с подробностями,
+статистика агента, таймлапс «Проиграть историю»). Источник — Google
+Sheets-лог агентов через `GET /my-agents/log` (нужны `SHEETS_LOG_URL` и
+`SHEETS_LOG_TOKEN` в `backend/.env`). Демо анимаций без реальных агентов —
+`http://127.0.0.1:5173/?mock=1`. Ручные шаги настройки —
+`docs/SETUP-GUIDE.md`, раздел 7.1. Тесты backend:
+`cd backend && python -m unittest discover -s tests -t .`
+
 ## Переменные .env
 
 `backend/.env` (см. `backend/.env.example`):
@@ -102,6 +114,7 @@ cd frontend && npm run dev
 | `OPENAI_MODEL` | модель, например `gpt-4o-mini` |
 | `OPENAI_BASE_URL` | опционально — любой OpenAI-совместимый эндпоинт вместо api.openai.com |
 | `HOST`, `PORT` | адрес backend (по умолчанию `127.0.0.1:8000`) |
+| `SHEETS_LOG_URL`, `SHEETS_LOG_TOKEN` | лог агентов для вкладки «Мои агенты» (из `sheets_api.txt`) |
 
 `frontend/.env` (см. `frontend/.env.example`): `VITE_API_BASE` — адрес backend, по
 умолчанию `http://127.0.0.1:8000`.

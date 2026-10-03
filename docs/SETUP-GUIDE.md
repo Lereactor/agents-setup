@@ -30,7 +30,8 @@
 ## 2. Лог запусков агентов — Google Sheets веб-хук (общий для всех агентов)
 
 1. Создать Google Sheet, добавить лист `log` с шапкой первой строкой:
-   `timestamp_utc | agent | status`
+   `timestamp_utc | agent | status | detail | run_id`
+   (`detail` и `run_id` добавлены 2026-10-04 — см. раздел 7.1)
 2. Extensions → Apps Script → вставить код из `scripts/log-sheet.gs`
 3. Project Settings → Script Properties → добавить `SECRET_TOKEN` (случайное
    значение, например `openssl rand -hex 20`)
@@ -43,8 +44,12 @@
    SHEETS_LOG_URL=https://script.google.com/macros/s/.../exec
    SHEETS_LOG_TOKEN=...
    ```
-6. Запись строки: `curl -s -L -X POST "$SHEETS_LOG_URL" -d "token=$SHEETS_LOG_TOKEN" -d "agent=<имя>" -d "status=success|error|skipped" -d "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"`
-   (флаг `-L` обязателен — Apps Script отвечает 302-редиректом)
+6. Запись строки: `curl -s -L "$SHEETS_LOG_URL" -d "token=$SHEETS_LOG_TOKEN" -d "agent=<имя>" -d "status=started|success|error|skipped" -d "run_id=<id>" --data-urlencode "detail=<что сделано>" -d "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"`
+   (флаг `-L` обязателен — Apps Script отвечает 302-редиректом).
+   **Без `-X POST`**: с ним curl после редиректа шлёт POST туда, где ждут GET,
+   получает «Error 411» (хотя строка уже записана) — агенты принимали это за
+   сбой и повторяли запрос, отсюда двойные записи в логе до 2026-10-04.
+   Агент пишет `started` в начале и итог в конце с тем же `run_id`.
 7. Чтение всего лога: `curl -s -L "$SHEETS_LOG_URL?token=$SHEETS_LOG_TOKEN"`
    → JSON `{"rows": [[...], ...]}`, первая строка — шапка
 
@@ -438,3 +443,51 @@ Reviewer → Writer).
 5. Известные ограничения (LangGraph не установлен из-за SSL-ошибки
    pip в этом окружении, frontend не смок-тестирован при написании) — см.
    README `ai-agent-live/README.md`, раздел «Известные ограничения»
+
+## 7.1 Вкладка «Мои агенты» (онлайн + история реальных агентов)
+
+Дизайн — `docs/plans/2026-10-04-my-agents-dashboard-design.md`. Вкладка
+открывается по умолчанию в `ai-agent-live` и читает тот же Google Sheets-лог,
+что и надзиратель (раздел 2). Внутренние рассуждения агентов не видны —
+только старт, итог и короткие подробности (`detail`).
+
+**Локально (уже сделано на этой машине):** в `ai-agent-live/backend/.env`
+дописаны `SHEETS_LOG_URL` и `SHEETS_LOG_TOKEN` (значения из `sheets_api.txt`).
+На другой машине — дописать их так же и перезапустить `start_windows.bat`.
+
+**Ручные шаги (один раз):**
+
+1. **Apps Script — новая версия кода.**
+   1. Открыть Google-таблицу с логом → меню **Расширения** (Extensions) →
+      **Apps Script**.
+   2. Выделить весь код в `Code.gs`, удалить, вставить содержимое
+      `scripts/log-sheet.gs` из репозитория → **Ctrl+S**.
+   3. Справа вверху **Начать развертывание** (Deploy) → **Управление
+      развертываниями** (Manage deployments).
+   4. У существующего развёртывания нажать ✏️ (**Изменить** / Edit) →
+      поле **Версия** (Version) → **Новая версия** (New version) →
+      **Начать развертывание** (Deploy).
+   5. URL не меняется — `sheets_api.txt` и переменные Routine трогать не нужно.
+      ⚠ Не нажимайте **New deployment** — это создаст новый URL.
+2. **Шапка таблицы.** На листе `log` в ячейку **D1** вписать `detail`,
+   в **E1** — `run_id`.
+3. **Промпты 4 Routine.** Для каждого агента: claude.ai/code/routines →
+   открыть Routine → **Edit** → заменить текст промпта целиком на блок
+   «Финальный текст промпта» из его дизайн-документа → **Save**:
+   - `news-digest` — `docs/plans/2026-08-18-news-digest-agent-design.md`
+   - `watchdog` — `docs/plans/2026-08-18-watchdog-agent-design.md`
+   - `shopping` — `docs/plans/2026-08-20-shopping-agent-design.md`
+   - `grocery` — `docs/plans/2026-09-17-grocery-agent-design.md`
+4. **Проверка.** Запустить `ai-agent-live/start_windows.bat`, открыть вкладку
+   «Мои агенты», затем у Routine `news-digest` нажать **Run now**. В течение
+   ~30 с карточка «Новости» должна показать «работает…» с таймером, а после
+   завершения — вспышку и подробности в ленте. В таблице — две строки с
+   одинаковым `run_id` (`started` и `success`).
+
+**Демо анимаций без реальных агентов:** `http://127.0.0.1:5173/?mock=1` —
+каждые ~10 с фиктивный запуск случайного агента (в таблицу ничего не пишет).
+
+**Если вкладка пишет «нет связи с логом»:** проверить окно «AI Agent Live -
+backend» на ошибки; `SSL: CERTIFICATE_VERIFY_FAILED` уже обойдён (backend
+берёт сертификаты из хранилища Windows — антивирус на этой машине
+подменяет TLS-сертификаты).
