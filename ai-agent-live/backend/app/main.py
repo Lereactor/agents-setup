@@ -10,6 +10,7 @@ from .events.bus import EventBus
 from .events.schema import EventType
 from .graph.runner import GraphRunner
 from .llm.provider import LLMProvider
+from .my_agents.source import LogSource
 from .storage import trace_store
 
 app = FastAPI(title="AI Agent Live Visualization")
@@ -26,6 +27,7 @@ bus = EventBus()
 bus.add_listener(trace_store.append_event)
 llm = LLMProvider(settings)
 runner = GraphRunner(bus, llm, settings.mock_mode)
+log_source = LogSource(settings.sheets_log_url, settings.sheets_log_token)
 
 # run_id -> {"prompt": str, "started": bool}. Демка на одну машину/один процесс —
 # in-memory реестр достаточен, персистентность самих событий отдельно в trace_store.
@@ -54,6 +56,12 @@ async def start_run(req: StartRunRequest):
 @app.get("/runs")
 async def list_runs():
     return trace_store.list_runs()
+
+
+@app.get("/my-agents/log")
+async def my_agents_log():
+    """Запуски реальных Routine-агентов из Google Sheets-лога (вкладка «Мои агенты»)."""
+    return await log_source.get()
 
 
 @app.get("/runs/{run_id}/events")

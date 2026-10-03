@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     openai_base_url: str = ""  # опционально: любой OpenAI-совместимый эндпоинт
     host: str = "127.0.0.1"
     port: int = 8000
+    # Вкладка «Мои агенты»: Apps Script веб-хук лога (значения — из sheets_api.txt)
+    sheets_log_url: str = ""
+    sheets_log_token: str = ""
 
 
 settings = Settings()
