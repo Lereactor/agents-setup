@@ -1,7 +1,8 @@
 """Нормализация строк Google Sheets-лога агентов в список «запусков».
 
 Строка лога: timestamp_utc | agent | status | detail | run_id | reply. Агент пишет
-`started` в начале работы и итог (success/error/skipped) в конце с тем же
+`started` в начале работы, по ходу — шаги `progress` (detail = что делает сейчас)
+и итог (success/error/skipped) в конце с тем же
 run_id — здесь они склеиваются в один запуск. Старые строки (до 2026-10-04,
 только 3 колонки, без run_id) — каждая сама по себе завершённый запуск.
 """
@@ -43,6 +44,8 @@ def parse_rows(rows: list[list], now: datetime) -> list[dict]:
             continue  # шапка, пустые и битые строки
         run_id = _cell(row, 4)
         if not run_id:
+            if status == "progress":
+                continue  # шаг без run_id не к чему привязать
             # Старые агенты слали лог через `curl -X POST`, получали «Error 411» после
             # редиректа Google и повторяли запрос — одна запись дублировалась.
             previous = last_legacy.get((agent, status))
@@ -53,16 +56,22 @@ def parse_rows(rows: list[list], now: datetime) -> list[dict]:
                 run_id = open_legacy_start[agent] = f"legacy-{index}"
             else:
                 run_id = open_legacy_start.pop(agent, None) or f"legacy-{index}"
-        group = groups.setdefault(run_id, {"agent": agent, "started": None, "final": None})
+        group = groups.setdefault(run_id, {"agent": agent, "started": None, "final": None, "steps": []})
         entry = (timestamp, status, _cell(row, 3), _cell(row, 5))
         if status == "started":
             group["started"] = entry
+        elif status == "progress":
+            # промежуточный шаг агента («🔎 ищу…») — не отдельный запуск и не итог
+            group["steps"].append({"at": _fmt(timestamp), "text": _cell(row, 3)})
         else:
             group["final"] = entry
 
     runs = []
     for run_id, group in groups.items():
-        started, final = group["started"], group["final"]
+        started, final, steps = group["started"], group["final"], group["steps"]
+        if not started and not final:
+            # строка started потерялась, а шаги дошли — запуск всё равно идёт
+            started = (_parse_ts(steps[0]["at"]), "started", "", "")
         started_at = started[0] if started else final[0]
         if final:
             finished_at, status = final[0], final[1]
@@ -83,6 +92,7 @@ def parse_rows(rows: list[list], now: datetime) -> list[dict]:
                 "detail": detail,
                 # Текст, который агент отправил в Telegram (только у итоговой строки).
                 "reply": final[3] if final else "",
+                "steps": steps,
             }
         )
     runs.sort(key=lambda r: r["started_at"])

@@ -132,6 +132,29 @@ class ParseRowsTest(unittest.TestCase):
         [run] = parse_rows([HEADER[:3], ["2026-10-03T05:09:06Z", "news-digest", "success"]], NOW)
         self.assertEqual(run["reply"], "")
 
+    def test_progress_rows_become_steps_not_runs(self):
+        rows = [
+            HEADER,
+            [ts(3), "grocery", "started", "найди молоко", "r10"],
+            [ts(2.5), "grocery", "progress", "🔎 ищу «молоко» во ВкусВилле", "r10"],
+            [ts(2), "grocery", "progress", "🧺 собираю корзину", "r10"],
+        ]
+        [run] = parse_rows(rows, NOW)
+        self.assertEqual(run["status"], "running")
+        self.assertEqual(run["detail"], "найди молоко")
+        self.assertEqual([s["text"] for s in run["steps"]], ["🔎 ищу «молоко» во ВкусВилле", "🧺 собираю корзину"])
+        self.assertEqual(run["steps"][0]["at"], ts(2.5))
+
+    def test_progress_does_not_finish_or_unstale_run(self):
+        rows = [
+            HEADER,
+            [ts(40), "news-digest", "started", "", "r11"],
+            [ts(35), "news-digest", "progress", "🔎 ищу новости", "r11"],
+        ]
+        [run] = parse_rows(rows, NOW)
+        self.assertEqual(run["status"], "stale")
+        self.assertIsNone(run["finished_at"])
+
     def test_empty_input(self):
         self.assertEqual(parse_rows([], NOW), [])
 

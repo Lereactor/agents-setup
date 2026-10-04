@@ -45,7 +45,10 @@ export async function fetchMyAgentsLog(): Promise<LogResponse> {
   try {
     const res = await fetch(`${API_BASE}/my-agents/log`)
     if (!res.ok) return { error: 'network' }
-    return (await res.json()) as LogResponse
+    const data = (await res.json()) as LogResponse
+    // Старый backend (до перезапуска) может не прислать новые поля — не роняем UI.
+    if (!('error' in data)) data.runs = data.runs.map((r) => ({ ...r, reply: r.reply ?? '', steps: r.steps ?? [] }))
+    return data
   } catch {
     return { error: 'network' }
   }

@@ -32,6 +32,13 @@ const SAMPLE_REPLY: Record<AgentId, string> = {
   watchdog: '🛡️ Надзор: всё в норме. news-digest — 1 запуск за сутки. shopping — 3, grocery — 2.',
 }
 
+const SAMPLE_STEPS: Record<AgentId, string[]> = {
+  shopping: ['🔎 ищу на Ozon', '🔎 ищу на Яндекс.Маркете', '⚖️ сравниваю 7 предложений', '✉️ отправляю ответ'],
+  grocery: ['🔎 ищу во ВкусВилле', '⚖️ сравниваю 5 вариантов', '🧺 собираю корзину', '✉️ отправляю ответ'],
+  'news-digest': ['🔎 ищу новости банков', '🔎 ищу IT-новости', '✍️ отбираю главное', '✉️ отправляю дайджест'],
+  watchdog: ['📖 читаю лог', '🧮 считаю запуски', '✉️ отправляю отчёт'],
+}
+
 const SAMPLE_DETAIL: Record<AgentId, { ask: string; done: string; fail: string }[]> = {
   shopping: [
     { ask: 'купи наушники Sony WH-1000XM5', done: 'лучшая цена 27 990 ₽ на Я.Маркете, рейтинг 4.8', fail: 'ошибка: Ozon не отдал страницу' },
@@ -56,7 +63,7 @@ function syntheticHistory(): AgentRun[] {
     const base = now - day * 86400000
     const push = (agent: AgentId, offsetH: number, status: AgentRun['status']) => {
       const t = iso(base + offsetH * 3600000)
-      runs.push({ run_id: `syn-${agent}-${day}-${offsetH}`, agent, status, started_at: t, finished_at: t, duration_s: null, detail: '', reply: '' })
+      runs.push({ run_id: `syn-${agent}-${day}-${offsetH}`, agent, status, started_at: t, finished_at: t, duration_s: null, detail: '', reply: '', steps: [] })
     }
     push('news-digest', 0, 'success')
     if (day % 3 === 0) push('shopping', 6, day % 9 === 0 ? 'error' : 'success')
@@ -88,7 +95,17 @@ export class MockSource {
     const sample = samples[Math.floor(Math.random() * samples.length)]
     const runId = `mock-${++this.seq}`
     const startedMs = Date.now()
-    this.runs.push({ run_id: runId, agent, status: 'running', started_at: iso(startedMs), finished_at: null, duration_s: null, detail: sample.ask, reply: '' })
+    this.runs.push({ run_id: runId, agent, status: 'running', started_at: iso(startedMs), finished_at: null, duration_s: null, detail: sample.ask, reply: '', steps: [] })
+    // шаги приходят по ходу работы — как progress-строки в настоящем логе
+    SAMPLE_STEPS[agent].forEach((text, i) => {
+      this.timers.push(
+        window.setTimeout(() => {
+          this.runs = this.runs.map((r) =>
+            r.run_id === runId && r.status === 'running' ? { ...r, steps: [...r.steps, { at: iso(Date.now()), text }] } : r,
+          )
+        }, 600 + i * 1300),
+      )
+    })
     const doneTimer = window.setTimeout(() => {
       // ?mock=ok — всегда успех (удобно посмотреть ответы в чат), иначе ~20% ошибок.
       const ok = new URLSearchParams(window.location.search).get('mock') === 'ok' || Math.random() > 0.2

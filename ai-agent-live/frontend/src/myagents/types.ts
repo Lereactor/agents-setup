@@ -14,6 +14,13 @@ export interface AgentRun {
   detail: string
   /** Текст ответа, который агент отправил в Telegram (пусто, если не отправлял или до 04.10). */
   reply: string
+  /** Промежуточные шаги агента по ходу запуска («🔎 ищу…», «🧺 собираю корзину»). */
+  steps: AgentStep[]
+}
+
+export interface AgentStep {
+  at: string
+  text: string
 }
 
 export interface LogOk {

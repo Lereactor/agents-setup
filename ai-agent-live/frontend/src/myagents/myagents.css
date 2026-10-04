@@ -1099,3 +1099,97 @@
 }
 
 
+
+/* ===== Шаги агента по ходу работы ===== */
+.agent-card__step {
+  display: inline;
+  color: #cfe3ff;
+  animation: step-in 0.35s ease-out;
+}
+.agent-card__step-n {
+  display: block;
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  margin-top: 2px;
+}
+.typing-dots {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 5px;
+  vertical-align: middle;
+}
+.typing-dots b {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--agent-color, #8fc1ff);
+  animation: typing 1.2s infinite ease-in-out;
+}
+.typing-dots b:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dots b:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.steps {
+  list-style: none;
+  margin: 6px 0 4px;
+  padding: 0 0 0 12px;
+  border-left: 2px solid color-mix(in srgb, var(--agent-color, #7c9cff) 45%, transparent);
+}
+.steps li {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  padding: 2px 0;
+  color: #c9cfdc;
+}
+.steps li::before {
+  content: '';
+  position: absolute;
+  left: -17px;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--agent-color, #7c9cff);
+  box-shadow: 0 0 6px var(--agent-color, #7c9cff);
+}
+.steps--live li.is-current::before {
+  animation: live-dot 1.4s infinite;
+}
+.steps__time {
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.feed__steps-n {
+  font-size: 11px;
+  color: var(--fg-dim);
+  margin-right: 8px;
+  padding: 0 6px;
+  border: 1px solid #2a3245;
+  border-radius: 999px;
+}
+
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}

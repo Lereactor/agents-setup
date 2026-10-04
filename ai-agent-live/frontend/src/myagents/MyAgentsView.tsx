@@ -23,6 +23,8 @@ const REPLY_POP_MS = 8000
 // Запуск, который начался и закончился между двумя опросами, всё равно «проигрываем»:
 // столько мс карточка показывает «работает…», потом вспышка итога и ответ.
 const CATCHUP_MS = 3500
+// при проигрывании пропущенных шагов — столько мс на каждый шаг
+const STEP_MS = 1200
 const PULSE_LIVE_MS = 4000
 const PULSE_REPLAY_MS = 1400
 
@@ -47,6 +49,8 @@ export default function MyAgentsView() {
   const [, forceTick] = useState(0)
   const flashSeq = useRef(0)
   const replayingRef = useRef(false)
+  // прошлый снимок запусков — сколько шагов сайт уже успел показать вживую
+  const prevRunsRef = useRef<AgentRun[]>([])
 
   const popReply = useCallback((agent: AgentId, run: AgentRun, ms: number) => {
     if (!run.reply) return
@@ -73,16 +77,29 @@ export default function MyAgentsView() {
           if (!isAgentId(run.agent)) continue
           const agent = run.agent
           const finished = run.status !== 'running' && run.status !== 'stale'
-          if (finished && prev === undefined) {
-            // «работает» сайт не застал — показываем его задним числом
-            setCatchup((c) => ({ ...c, [agent]: { ...run, status: 'running', finished_at: null } }))
-            fire(agent, 'running', CATCHUP_MS)
-            window.setTimeout(() => {
-              setCatchup((c) => (c[agent]?.run_id === run.run_id ? { ...c, [agent]: undefined } : c))
-              fire(agent, run.status, PULSE_LIVE_MS)
-              popReply(agent, run, REPLY_POP_MS)
-            }, CATCHUP_MS)
-            continue
+          if (finished && (prev === undefined || prev === 'running')) {
+            // «работает» сайт застал не целиком (или не застал вовсе) — проигрываем
+            // задним числом: шаги по очереди, потом вспышка итога и ответ.
+            const seen = prev === 'running' ? (prevRunsRef.current.find((r) => r.run_id === run.run_id)?.steps.length ?? 0) : 0
+            const pending = run.steps.slice(seen)
+            if (prev === undefined || pending.length) {
+              const total = pending.length ? (pending.length + 1) * STEP_MS : CATCHUP_MS
+              const ghost = (n: number): AgentRun => ({ ...run, status: 'running', finished_at: null, steps: run.steps.slice(0, seen + n) })
+              setCatchup((c) => ({ ...c, [agent]: ghost(0) }))
+              pending.forEach((_, i) =>
+                window.setTimeout(
+                  () => setCatchup((c) => (c[agent]?.run_id === run.run_id ? { ...c, [agent]: ghost(i + 1) } : c)),
+                  (i + 1) * STEP_MS - STEP_MS / 2,
+                ),
+              )
+              fire(agent, 'running', total)
+              window.setTimeout(() => {
+                setCatchup((c) => (c[agent]?.run_id === run.run_id ? { ...c, [agent]: undefined } : c))
+                fire(agent, run.status, PULSE_LIVE_MS)
+                popReply(agent, run, REPLY_POP_MS)
+              }, total)
+              continue
+            }
           }
           fire(agent, run.status, PULSE_LIVE_MS)
           popReply(agent, run, REPLY_POP_MS)
@@ -105,6 +122,7 @@ export default function MyAgentsView() {
     ),
   )
   replayingRef.current = replay.playing
+  prevRunsRef.current = log.runs
 
   useEffect(() => {
     if (!replay.playing) setReplayLast({})

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { AGENT_ORDER, AGENTS, STATUS_LABEL } from './agents'
 import ReplyBubble from './ReplyBubble'
 import Sparkline from './Sparkline'
+import StepsTimeline from './StepsTimeline'
 import { avgDuration, formatDuration, formatTime, runsByDay, successRate, todayCounts } from './stats'
 import type { AgentId, AgentRun } from './types'
 
@@ -100,6 +101,7 @@ export default function AgentPanel({ agent, runs, onSelect }: Props) {
               {r.duration_s !== null && <span className="dim"> · {formatDuration(r.duration_s)}</span>}
             </div>
             {r.detail && <div className="agent-panel__detail">{r.detail}</div>}
+            <StepsTimeline steps={r.steps} live={r.status === 'running'} />
             {r.reply && <ReplyBubble text={r.reply} at={r.finished_at} />}
           </li>
         ))}

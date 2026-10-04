@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { AGENT_ORDER, AGENTS, STATUS_LABEL, isAgentId } from './agents'
 import ReplyBubble from './ReplyBubble'
+import StepsTimeline from './StepsTimeline'
 import { formatDuration, formatTime, runDayKey } from './stats'
 import type { AgentId, AgentRun, RunStatus } from './types'
 
@@ -62,14 +63,15 @@ export default function HistoryFeed({ runs, day, agentFilter, onAgentFilter }: P
       <ul className="feed__list">
         {filtered.slice(0, LIMIT).map((run) => {
           const meta = isAgentId(run.agent) ? AGENTS[run.agent] : null
-          const open = expanded === run.run_id && !!run.reply
+          const expandable = !!run.reply || run.steps.length > 0
+          const open = expanded === run.run_id && expandable
           return (
             <li
               key={run.run_id}
-              className={`feed__item feed__item--${run.status} ${run.reply ? 'feed__item--has-reply' : ''}`}
+              className={`feed__item feed__item--${run.status} ${expandable ? 'feed__item--has-reply' : ''}`}
               style={{ ['--agent-color' as string]: meta?.color ?? '#888' }}
               onClick={() => {
-                if (!run.reply) return
+                if (!expandable) return
                 setExpanded(open ? null : run.run_id)
                 setHover(null)
               }}
@@ -79,7 +81,7 @@ export default function HistoryFeed({ runs, day, agentFilter, onAgentFilter }: P
                 setHover({ run, left: rect.left + 120, top: rect.top })
               }}
               onMouseLeave={() => setHover(null)}
-              title={run.reply ? 'Показать ответ в чат' : undefined}
+              title={expandable ? 'Показать шаги и ответ в чат' : undefined}
             >
               <span className="feed__time">{formatTime(run.started_at)}</span>
               <span className="feed__agent">
@@ -88,12 +90,14 @@ export default function HistoryFeed({ runs, day, agentFilter, onAgentFilter }: P
               <span className={`status-badge status-badge--${run.status}`}>{STATUS_LABEL[run.status]}</span>
               <span className="feed__dur">{run.duration_s !== null ? formatDuration(run.duration_s) : ''}</span>
               <span className="feed__detail">
-                {run.reply && <span className="feed__reply-icon">{open ? '▾' : '✉'}</span>}
+                {expandable && <span className="feed__reply-icon">{open ? '▾' : run.reply ? '✉' : '▸'}</span>}
+                {run.steps.length > 0 && <span className="feed__steps-n">{run.steps.length} шаг.</span>}
                 {run.detail || <span className="dim">подробности не записывались</span>}
               </span>
               {open && (
                 <div className="feed__reply">
-                  <ReplyBubble text={run.reply} at={run.finished_at} />
+                  <StepsTimeline steps={run.steps} live={run.status === 'running'} />
+                  {run.reply && <ReplyBubble text={run.reply} at={run.finished_at} />}
                 </div>
               )}
             </li>

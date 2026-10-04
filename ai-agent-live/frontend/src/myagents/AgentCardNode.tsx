@@ -97,9 +97,24 @@ export default function AgentCardNode({ data }: NodeProps<AgentCardData>) {
           {badge && <span className={`status-badge status-badge--${badge}`}>{STATUS_LABEL[badge]}</span>}
         </div>
 
-        <div className="agent-card__detail" title={shown?.detail || undefined}>
-          {shown?.detail ? `«${shown.detail}»` : <span className="dim">{meta.trigger}</span>}
-        </div>
+        {live === 'running' && data.current && data.current.steps.length > 0 ? (
+          // идёт работа — показываем текущий шаг агента, запрос остаётся в подсказке
+          <div className="agent-card__detail" title={data.current.detail || undefined}>
+            <span key={data.current.steps.length} className="agent-card__step">
+              {data.current.steps[data.current.steps.length - 1].text}
+              <i className="typing-dots">
+                <b />
+                <b />
+                <b />
+              </i>
+            </span>
+            <span className="agent-card__step-n">шаг {data.current.steps.length}</span>
+          </div>
+        ) : (
+          <div className="agent-card__detail" title={shown?.detail || undefined}>
+            {shown?.detail ? `«${shown.detail}»` : <span className="dim">{meta.trigger}</span>}
+          </div>
+        )}
 
         <div className="agent-card__foot">
           {live === 'running' && elapsed !== null ? (
