@@ -46,12 +46,12 @@ class LogSourceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["runs"][0]["agent"], "news-digest")
         self.assertIn("fetched_at", result)
 
-    async def test_cache_is_reused_within_20_seconds(self):
+    async def test_cache_is_reused_within_8_seconds(self):
         clock = FakeClock()
         fetch = FakeFetch(GOOD, GOOD)
         source = make(fetch, clock)
         await source.get()
-        clock.now += 19
+        clock.now += 7
         await source.get()
         self.assertEqual(fetch.calls, 1)
         clock.now += 2

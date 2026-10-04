@@ -11,7 +11,7 @@ import ParticleEdge from './ParticleEdge'
 import SourceNode from './SourceNode'
 import { formatAgo, todayCounts } from './stats'
 import type { AgentId, AgentRun, RunStatus } from './types'
-import { useAgentLog } from './useAgentLog'
+import { useAgentLog, type AgentChange } from './useAgentLog'
 import { REPLAY_PERIODS, useReplay } from './useReplay'
 import './myagents.css'
 
@@ -20,6 +20,9 @@ const edgeTypes = { particle: ParticleEdge }
 
 const FLASH_MS = 2600
 const REPLY_POP_MS = 8000
+// Запуск, который начался и закончился между двумя опросами, всё равно «проигрываем»:
+// столько мс карточка показывает «работает…», потом вспышка итога и ответ.
+const CATCHUP_MS = 3500
 const PULSE_LIVE_MS = 4000
 const PULSE_REPLAY_MS = 1400
 
@@ -38,6 +41,7 @@ export default function MyAgentsView() {
   const [replyPop, setReplyPop] = useState<Partial<Record<AgentId, AgentCardData['replyPop']>>>({})
   const [pulseUntil, setPulseUntil] = useState<Partial<Record<AgentId, number>>>({})
   const [replayLast, setReplayLast] = useState<Partial<Record<AgentId, AgentRun>>>({})
+  const [catchup, setCatchup] = useState<Partial<Record<AgentId, AgentRun>>>({})
   const [selected, setSelected] = useState<AgentId | null>(null)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [, forceTick] = useState(0)
@@ -63,12 +67,25 @@ export default function MyAgentsView() {
 
   const log = useAgentLog(
     useCallback(
-      (changes: AgentRun[]) => {
+      (changes: AgentChange[]) => {
         if (replayingRef.current) return // во время таймлапса живые вспышки на паузе
-        for (const run of changes) {
+        for (const { run, prev } of changes) {
           if (!isAgentId(run.agent)) continue
-          fire(run.agent, run.status, PULSE_LIVE_MS)
-          popReply(run.agent, run, REPLY_POP_MS)
+          const agent = run.agent
+          const finished = run.status !== 'running' && run.status !== 'stale'
+          if (finished && prev === undefined) {
+            // «работает» сайт не застал — показываем его задним числом
+            setCatchup((c) => ({ ...c, [agent]: { ...run, status: 'running', finished_at: null } }))
+            fire(agent, 'running', CATCHUP_MS)
+            window.setTimeout(() => {
+              setCatchup((c) => (c[agent]?.run_id === run.run_id ? { ...c, [agent]: undefined } : c))
+              fire(agent, run.status, PULSE_LIVE_MS)
+              popReply(agent, run, REPLY_POP_MS)
+            }, CATCHUP_MS)
+            continue
+          }
+          fire(agent, run.status, PULSE_LIVE_MS)
+          popReply(agent, run, REPLY_POP_MS)
         }
       },
       [fire, popReply],
@@ -109,8 +126,11 @@ export default function MyAgentsView() {
   const now = Date.now()
   const agentState = AGENT_ORDER.reduce(
     (acc, agent) => {
-      const runs = byAgent[agent]
-      const current = replay.playing ? null : [...runs].reverse().find((r) => r.status === 'running' || r.status === 'stale') ?? null
+      const ghost = replay.playing ? undefined : catchup[agent]
+      const runs = ghost ? byAgent[agent].filter((r) => r.run_id !== ghost.run_id) : byAgent[agent]
+      const current = replay.playing
+        ? null
+        : ghost ?? [...runs].reverse().find((r) => r.status === 'running' || r.status === 'stale') ?? null
       const last = replay.playing
         ? replayLast[agent] ?? null
         : [...runs].reverse().find((r) => r.status !== 'running' && r.status !== 'stale') ?? null

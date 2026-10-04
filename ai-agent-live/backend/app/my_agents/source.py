@@ -9,7 +9,7 @@ import httpx
 
 from .log_parser import parse_rows
 
-CACHE_SECONDS = 20
+CACHE_SECONDS = 8
 RETRY_DELAY_SECONDS = 5
 
 

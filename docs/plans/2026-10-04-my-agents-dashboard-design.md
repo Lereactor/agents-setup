@@ -52,7 +52,7 @@ Google Sheet-лог (`scripts/log-sheet.gs`, веб-хук Apps Script), кот�
   `{run_id, agent, status, started_at, finished_at, duration_s, detail}`;
   `status=running`, если есть `started` без итога; `stale`, если такой запуск
   старше 30 минут. Старые строки без `run_id` → отдельный запуск каждая.
-- Кэш 20 с. Ответ Google не JSON → один повтор через 5 с; если снова неудача —
+- Кэш 8 с. Ответ Google не JSON → один повтор через 5 с; если снова неудача —
   последние удачные данные с `stale_data: true` и временем получения.
 - Не настроены переменные → понятная ошибка `not_configured`, вкладка показывает
   инструкцию, а не падает.
