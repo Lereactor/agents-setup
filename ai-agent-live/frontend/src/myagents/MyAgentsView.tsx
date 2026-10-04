@@ -6,7 +6,7 @@ import AgentPanel from './AgentPanel'
 import { AGENT_ORDER, isAgentId } from './agents'
 import Heatmap from './Heatmap'
 import HistoryFeed from './HistoryFeed'
-import { AGENT_POSITIONS, baseEdges, edgeAgents, sourceNodes, type ParticleEdgeData } from './layout'
+import { AGENT_POSITIONS, AGENT_POSITIONS_NARROW, baseEdges, edgeAgents, sourceNodes, type ParticleEdgeData } from './layout'
 import ParticleEdge from './ParticleEdge'
 import SourceNode from './SourceNode'
 import { formatAgo, todayCounts } from './stats'
@@ -38,7 +38,20 @@ const SOURCES_OF: Record<AgentId, string[]> = {
   watchdog: ['cron-watch'],
 }
 
+function useNarrow(): boolean {
+  const query = '(max-width: 900px)'
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(query)
+    const onChange = () => setNarrow(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return narrow
+}
+
 export default function MyAgentsView() {
+  const narrow = useNarrow()
   const [flash, setFlash] = useState<Partial<Record<AgentId, Flash>>>({})
   const [replyPop, setReplyPop] = useState<Partial<Record<AgentId, AgentCardData['replyPop']>>>({})
   const [pulseUntil, setPulseUntil] = useState<Partial<Record<AgentId, number>>>({})
@@ -160,7 +173,7 @@ export default function MyAgentsView() {
   )
 
   const nodes: Node[] = [
-    ...sourceNodes.map((n) => ({
+    ...(narrow ? [] : sourceNodes).map((n) => ({
       ...n,
       data: { ...n.data, active: AGENT_ORDER.some((a) => agentState[a].active && SOURCES_OF[a].includes(n.id)) },
     })),
@@ -168,7 +181,7 @@ export default function MyAgentsView() {
       (agent): Node<AgentCardData> => ({
         id: agent,
         type: 'agentCard',
-        position: AGENT_POSITIONS[agent],
+        position: (narrow ? AGENT_POSITIONS_NARROW : AGENT_POSITIONS)[agent],
         data: {
           agent,
           current: agentState[agent].current,
@@ -182,7 +195,7 @@ export default function MyAgentsView() {
     ),
   ]
 
-  const edges: Edge<ParticleEdgeData & { active: boolean }>[] = baseEdges.map((e) => ({
+  const edges: Edge<ParticleEdgeData & { active: boolean }>[] = (narrow ? [] : baseEdges).map((e) => ({
     ...e,
     data: { ...e.data!, active: edgeAgents(e).some((a) => agentState[a].active) },
   }))
@@ -265,6 +278,7 @@ export default function MyAgentsView() {
           </div>
         )}
         <ReactFlow
+          key={narrow ? 'narrow' : 'wide'} /* смена раскладки — заново вписать граф */
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
@@ -274,7 +288,7 @@ export default function MyAgentsView() {
           nodesDraggable={false}
           nodesConnectable={false}
           fitView
-          fitViewOptions={{ padding: 0.12 }}
+          fitViewOptions={{ padding: narrow ? 0.04 : 0.12 }}
           minZoom={0.3}
           proOptions={{ hideAttribution: true }}
         >

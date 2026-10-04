@@ -1193,3 +1193,100 @@
     transform: translateY(6px);
   }
 }
+
+/* ===== Публичный сайт и телефоны ===== */
+.site-root {
+  height: 100vh;
+}
+@media (max-width: 900px) {
+  .site-root,
+  .root-tabs__content {
+    height: auto;
+  }
+  .ma-shell {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+  }
+  .ma-header {
+    gap: 10px;
+  }
+  .ma-header__replay {
+    flex-wrap: wrap;
+  }
+  .replay-bar {
+    width: 180px;
+  }
+  .ma-canvas {
+    height: 70vh;
+    min-height: 420px;
+  }
+  .agent-panel {
+    overflow: visible;
+  }
+  .ma-bottom {
+    flex-direction: column;
+  }
+  .heatmap {
+    width: auto;
+  }
+  .feed__list {
+    max-height: 60vh;
+  }
+  .feed__item {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'agent badge'
+      'time dur'
+      'detail detail';
+    row-gap: 2px;
+  }
+  .feed__time {
+    grid-area: time;
+  }
+  .feed__agent {
+    grid-area: agent;
+  }
+  .feed__item .status-badge {
+    grid-area: badge;
+    justify-self: end;
+  }
+  .feed__dur {
+    grid-area: dur;
+    justify-self: end;
+  }
+  .feed__detail {
+    grid-area: detail;
+    white-space: normal;
+  }
+  .feed__reply {
+    margin-left: 0;
+  }
+  .feed__hover {
+    display: none; /* на телефоне нет наведения — ответ открывается по нажатию */
+  }
+}
+@media (max-width: 900px) {
+  .ma-shell {
+    width: 100%;
+    overflow-x: hidden;
+  }
+  .ma-header__status {
+    flex-basis: 100%;
+  }
+  .live-pill {
+    white-space: normal;
+  }
+  .ma-canvas {
+    height: 112vw; /* сетка 2×2 карточек — высота по ширине экрана */
+    min-height: 0;
+    max-height: 80vh;
+  }
+  .kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .kpi b {
+    font-size: 15px;
+  }
+}

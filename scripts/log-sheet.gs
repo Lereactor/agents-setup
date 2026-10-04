@@ -2,7 +2,9 @@
 // Деплой: Extensions > Apps Script в Google Sheet, вставить этот файл как Code.gs,
 // затем Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone).
 // Обновление кода: Deploy > Manage deployments > ✏️ > Version: New version (URL не меняется).
-// Секрет хранится в Project Settings > Script Properties (SECRET_TOKEN), не в коде.
+// Секреты хранятся в Project Settings > Script Properties, не в коде:
+//   SECRET_TOKEN — агенты: запись и чтение лога;
+//   READ_TOKEN   — сайт «Мои агенты» на GitHub Pages: ТОЛЬКО чтение (doGet).
 //
 // Лист должен называться "log", шапка в первой строке:
 // timestamp_utc | agent | status | detail | run_id | reply
@@ -12,11 +14,18 @@
 const SHEET_NAME = 'log';
 const HEADER = ['timestamp_utc', 'agent', 'status', 'detail', 'run_id', 'reply'];
 // Меняется при каждом изменении кода — по GET ?ping=1 видно, какая версия развёрнута.
-const VERSION = 3;
+const VERSION = 4;
 
 function checkToken_(params) {
   const secret = PropertiesService.getScriptProperties().getProperty('SECRET_TOKEN');
   return secret && params.token === secret;
+}
+
+// Чтение: ключ агентов или отдельный ключ сайта (он попадает в браузер, поэтому
+// им нельзя писать в лог — doPost принимает только SECRET_TOKEN).
+function checkReadToken_(params) {
+  const read = PropertiesService.getScriptProperties().getProperty('READ_TOKEN');
+  return checkToken_(params) || (read && params.token === read);
 }
 
 function json_(obj) {
@@ -57,7 +66,7 @@ function doPost(e) {
 function doGet(e) {
   const params = e.parameter || {};
   if (params.ping) return json_({ version: VERSION });
-  if (!checkToken_(params)) return json_({ error: 'unauthorized' });
+  if (!checkReadToken_(params)) return json_({ error: 'unauthorized' });
 
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   const rows = sheet.getDataRange().getValues();

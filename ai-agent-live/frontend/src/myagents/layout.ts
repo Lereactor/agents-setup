@@ -32,6 +32,15 @@ export const AGENT_POSITIONS: Record<AgentId, { x: number; y: number }> = {
   watchdog: { x: 640, y: 300 },
 }
 
+/** Телефон: только карточки агентов сеткой 2×2 — на узком экране полный граф со
+ *  узлами-источниками ужимается до нечитаемого. */
+export const AGENT_POSITIONS_NARROW: Record<AgentId, { x: number; y: number }> = {
+  shopping: { x: 0, y: 0 },
+  grocery: { x: 280, y: 0 },
+  'news-digest': { x: 0, y: 270 },
+  watchdog: { x: 280, y: 270 },
+}
+
 type EdgeSpec = Omit<Edge<ParticleEdgeData>, 'type'> & { data: ParticleEdgeData }
 
 const COLORS: Record<AgentId, string> = {

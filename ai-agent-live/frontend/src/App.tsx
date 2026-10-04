@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import DemoView from './DemoView'
 import MyAgentsView from './myagents/MyAgentsView'
+import Gate from './site/Gate'
+import { IS_STATIC_SITE } from './site/siteSource'
 
 type Tab = 'demo' | 'agents'
 
@@ -16,6 +18,18 @@ function loadTab(): Tab {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>(loadTab)
+
+  // Публичный сайт (GitHub Pages): только «Мои агенты» за паролем — демо требует
+  // локальный Python-backend, которого там нет.
+  if (IS_STATIC_SITE) {
+    return (
+      <Gate>
+        <div className="site-root">
+          <MyAgentsView />
+        </div>
+      </Gate>
+    )
+  }
 
   const choose = (next: Tab) => {
     setTab(next)

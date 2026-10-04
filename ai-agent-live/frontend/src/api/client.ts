@@ -1,5 +1,6 @@
 import type { AgentEvent } from '../events/types'
 import type { LogResponse } from '../myagents/types'
+import { fetchSiteLog, IS_STATIC_SITE } from '../site/siteSource'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://127.0.0.1:8000'
 const WS_BASE = API_BASE.replace(/^http/, 'ws')
@@ -42,6 +43,7 @@ export async function fetchRunEvents(runId: string): Promise<AgentEvent[]> {
 /** Лог реальных Routine-агентов (вкладка «Мои агенты»). Сетевую ошибку отдаёт как
  * {error: 'network'}, чтобы вкладка показала понятный статус, а не падала. */
 export async function fetchMyAgentsLog(): Promise<LogResponse> {
+  if (IS_STATIC_SITE) return fetchSiteLog()
   try {
     const res = await fetch(`${API_BASE}/my-agents/log`)
     if (!res.ok) return { error: 'network' }

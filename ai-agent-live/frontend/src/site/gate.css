@@ -1,0 +1,114 @@
+.gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background:
+    radial-gradient(ellipse at 25% 20%, #16203a 0%, transparent 55%),
+    radial-gradient(ellipse at 80% 85%, #1e1530 0%, transparent 50%),
+    #0a0c12;
+}
+.gate__card {
+  width: 100%;
+  max-width: 360px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 28px 24px;
+  border-radius: 18px;
+  background: #121725ee;
+  border: 1px solid #2a3245;
+  box-shadow: 0 30px 80px #000b;
+  text-align: center;
+}
+.gate__emojis {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  font-size: 28px;
+}
+.gate__emojis span {
+  animation: gate-bob 2.4s ease-in-out infinite;
+}
+.gate__emojis span:nth-child(2) {
+  animation-delay: 0.3s;
+}
+.gate__emojis span:nth-child(3) {
+  animation-delay: 0.6s;
+}
+.gate__emojis span:nth-child(4) {
+  animation-delay: 0.9s;
+}
+.gate__card h1 {
+  margin: 4px 0 0;
+  font-size: 22px;
+}
+.gate__sub {
+  margin: 0 0 8px;
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+.gate__card input[type='password'] {
+  width: 100%;
+  min-width: 0;
+  background: #0b0e16;
+  color: var(--fg);
+  border: 1px solid #2a3245;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 16px; /* 16px — iOS не зумит поле при фокусе */
+}
+.gate__card input[type='password']:focus {
+  outline: none;
+  border-color: #7c9cff;
+  box-shadow: 0 0 0 3px #7c9cff33;
+}
+.gate__remember {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+.gate__card button {
+  background: linear-gradient(90deg, #3d8bff, #7c5cff);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+.gate__card button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.gate__error {
+  color: var(--err);
+  font-size: 13px;
+}
+.gate-logout {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  z-index: 50;
+  background: #151a26cc;
+  color: var(--fg-dim);
+  border: 1px solid #2a3245;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+@keyframes gate-bob {
+  50% {
+    transform: translateY(-5px);
+  }
+}
