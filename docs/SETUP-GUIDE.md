@@ -474,10 +474,16 @@ Reviewer → Writer).
 3. **Промпты 4 Routine.** Для каждого агента: claude.ai/code/routines →
    открыть Routine → **Edit** → заменить текст промпта целиком на блок
    «Финальный текст промпта» из его дизайн-документа → **Save**:
-   - `news-digest` — `docs/plans/2026-08-18-news-digest-agent-design.md`
-   - `watchdog` — `docs/plans/2026-08-18-watchdog-agent-design.md`
-   - `shopping` — `docs/plans/2026-08-20-shopping-agent-design.md`
-   - `grocery` — `docs/plans/2026-09-17-grocery-agent-design.md`
+   - **Daily Digest Bank News** (`news-digest`) — `docs/plans/2026-08-18-news-digest-agent-design.md`
+     (⚠ в живом промпте токен бота вписан текстом, переменной `TELEGRAM_BOT_TOKEN`
+     в его окружении нет — при замене подставить токен вместо `${TELEGRAM_BOT_TOKEN}`)
+   - **Guard** (`watchdog`) — `docs/plans/2026-08-18-watchdog-agent-design.md`
+   - **Shopping** — `docs/plans/2026-08-20-shopping-agent-design.md`
+   - **Grocery** — `docs/plans/2026-09-17-grocery-agent-design.md`
+
+   ✅ 2026-10-04 все 4 промпта обновлены Claude через API Routines
+   (`RemoteTrigger update`, меняется только текст промпта — расписание, окружение
+   и коннекторы сохраняются), вручную вставлять не нужно.
 4. **Проверка.** Запустить `ai-agent-live/start_windows.bat`, открыть вкладку
    «Мои агенты», затем у Routine `news-digest` нажать **Run now**. В течение
    ~30 с карточка «Новости» должна показать «работает…» с таймером, а после
