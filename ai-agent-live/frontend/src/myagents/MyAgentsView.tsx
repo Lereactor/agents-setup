@@ -19,6 +19,7 @@ const nodeTypes = { agentCard: AgentCardNode, source: SourceNode }
 const edgeTypes = { particle: ParticleEdge }
 
 const FLASH_MS = 2600
+const REPLY_POP_MS = 8000
 const PULSE_LIVE_MS = 4000
 const PULSE_REPLAY_MS = 1400
 
@@ -34,6 +35,7 @@ const SOURCES_OF: Record<AgentId, string[]> = {
 
 export default function MyAgentsView() {
   const [flash, setFlash] = useState<Partial<Record<AgentId, Flash>>>({})
+  const [replyPop, setReplyPop] = useState<Partial<Record<AgentId, AgentCardData['replyPop']>>>({})
   const [pulseUntil, setPulseUntil] = useState<Partial<Record<AgentId, number>>>({})
   const [replayLast, setReplayLast] = useState<Partial<Record<AgentId, AgentRun>>>({})
   const [selected, setSelected] = useState<AgentId | null>(null)
@@ -41,6 +43,13 @@ export default function MyAgentsView() {
   const [, forceTick] = useState(0)
   const flashSeq = useRef(0)
   const replayingRef = useRef(false)
+
+  const popReply = useCallback((agent: AgentId, run: AgentRun, ms: number) => {
+    if (!run.reply) return
+    const key = ++flashSeq.current
+    setReplyPop((p) => ({ ...p, [agent]: { text: run.reply, at: run.finished_at, key } }))
+    window.setTimeout(() => setReplyPop((p) => (p[agent]?.key === key ? { ...p, [agent]: null } : p)), ms)
+  }, [])
 
   const fire = useCallback((agent: AgentId, status: RunStatus, pulseMs: number) => {
     const key = ++flashSeq.current
@@ -56,9 +65,13 @@ export default function MyAgentsView() {
     useCallback(
       (changes: AgentRun[]) => {
         if (replayingRef.current) return // во время таймлапса живые вспышки на паузе
-        for (const run of changes) if (isAgentId(run.agent)) fire(run.agent, run.status, PULSE_LIVE_MS)
+        for (const run of changes) {
+          if (!isAgentId(run.agent)) continue
+          fire(run.agent, run.status, PULSE_LIVE_MS)
+          popReply(run.agent, run, REPLY_POP_MS)
+        }
       },
-      [fire],
+      [fire, popReply],
     ),
   )
 
@@ -69,8 +82,9 @@ export default function MyAgentsView() {
         if (!isAgentId(run.agent)) return
         setReplayLast((r) => ({ ...r, [run.agent]: run }))
         fire(run.agent, run.status === 'running' || run.status === 'stale' ? 'success' : run.status, PULSE_REPLAY_MS)
+        popReply(run.agent, run, 2200)
       },
-      [fire],
+      [fire, popReply],
     ),
   )
   replayingRef.current = replay.playing
@@ -124,6 +138,7 @@ export default function MyAgentsView() {
           flash: flash[agent] ?? null,
           today: todayCounts(byAgent[agent]),
           selected: selected === agent,
+          replyPop: replyPop[agent] ?? null,
         },
       }),
     ),

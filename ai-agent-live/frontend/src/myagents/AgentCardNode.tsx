@@ -5,6 +5,7 @@ import GroceryArt from './art/GroceryArt'
 import NewsArt from './art/NewsArt'
 import ShoppingArt from './art/ShoppingArt'
 import WatchdogArt from './art/WatchdogArt'
+import ReplyBubble from './ReplyBubble'
 import { formatAgo, formatDuration } from './stats'
 import type { AgentId, AgentRun, RunStatus } from './types'
 
@@ -18,6 +19,8 @@ export interface AgentCardData {
   flash: { status: RunStatus; key: number } | null
   today: { ok: number; err: number; total: number }
   selected: boolean
+  /** Свежий ответ в Telegram — на несколько секунд всплывает пузырём над карточкой. */
+  replyPop: { text: string; at: string | null; key: number } | null
 }
 
 const ART: Record<AgentId, (p: { active: boolean }) => JSX.Element> = {
@@ -61,6 +64,21 @@ export default function AgentCardNode({ data }: NodeProps<AgentCardData>) {
       style={{ ['--agent-color' as string]: meta.color }}
     >
       {data.flash && <div key={data.flash.key} className={`agent-card__flash agent-card__flash--${data.flash.status}`} />}
+      {data.replyPop ? (
+        <div key={data.replyPop.key} className="agent-card__reply-pop">
+          <div className="agent-card__reply-label">✉ отправлено в Telegram</div>
+          <ReplyBubble text={data.replyPop.text} at={data.replyPop.at} collapsible={false} />
+        </div>
+      ) : (
+        live !== 'running' &&
+        shown?.reply && (
+          // при наведении на карточку — последний ответ агента в чат
+          <div className="agent-card__reply-hover">
+            <div className="agent-card__reply-label">✉ последний ответ в Telegram</div>
+            <ReplyBubble text={shown.reply} at={shown.finished_at} collapsible={false} />
+          </div>
+        )
+      )}
       <Handle id="in-l" type="target" position={Position.Left} style={hidden} />
       <Handle id="in-r" type="target" position={Position.Right} style={hidden} />
       <Handle id="in-b" type="target" position={Position.Bottom} style={hidden} />
@@ -90,6 +108,11 @@ export default function AgentCardNode({ data }: NodeProps<AgentCardData>) {
             <span className="dim">{formatAgo(shown.finished_at ?? shown.started_at, now)}</span>
           ) : (
             <span className="dim">ещё не запускался</span>
+          )}
+          {live !== 'running' && shown?.reply && (
+            <span className="agent-card__has-reply" title="Агент ответил в чат — нажмите на карточку, чтобы прочитать">
+              ✉ ответ
+            </span>
           )}
           <span className="agent-card__today" title="Запуски за сегодня">
             сегодня <b className="ok">✓{data.today.ok}</b>

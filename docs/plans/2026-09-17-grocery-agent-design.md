@@ -205,7 +205,13 @@ project-scope MCP в будущем.
      -d "status=success|skipped|error" \
      -d "run_id={тот же RUN_ID, что в шаге 0}" \
      --data-urlencode "detail={итог одной строкой, до 150 символов}" \
+     --data-urlencode "reply@/tmp/reply.txt" \
      -d "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" || true
+
+   /tmp/reply.txt — ТОЧНЫЙ текст сообщения, которое ты отправил в Telegram на
+   шаге 6 (сохрани его в этот файл перед отправкой и отправляй из него же). Его
+   показывает визуализация как «ответ в чат». Если в Telegram ничего не
+   отправлял (status=skipped) — строку с reply убери.
 
    detail — коротко по-русски, что получилось, например:
    success: «борщ → 9 товаров, корзина 1 284 ₽»

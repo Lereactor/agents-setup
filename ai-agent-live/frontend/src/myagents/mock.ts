@@ -9,6 +9,29 @@ export function isMockMode(): boolean {
   return new URLSearchParams(window.location.search).has('mock')
 }
 
+const SAMPLE_REPLY: Record<AgentId, string> = {
+  shopping: `🛒 Наушники Sony WH-1000XM5
+
+1. Sony WH-1000XM5 — 27 990 ₽, Я.Маркет, ★4.9 (2 140 отзывов)
+2. Sony WH-1000XM5 — 29 490 ₽, Ozon, ★4.8 (5 312 отзывов)
+
+💡 Взял бы на Я.Маркете: на 1 500 ₽ дешевле при том же рейтинге.`,
+  grocery: `🛒 Борщ — продукты
+
+1. Свёкла молодая — 69 ₽, ★4.9
+2. Капуста белокочанная — 45 ₽, ★4.8
+3. Говядина для супа — 489 ₽, ★4.9
+…
+
+🔗 Корзина: https://vkusvill.ru/?share_basket=…`,
+  'news-digest': `📰 Новости за сегодня
+
+1. ЦБ сохранил ключевую ставку…
+2. Крупный банк запустил…
+3. Вышла новая версия…`,
+  watchdog: '🛡️ Надзор: всё в норме. news-digest — 1 запуск за сутки. shopping — 3, grocery — 2.',
+}
+
 const SAMPLE_DETAIL: Record<AgentId, { ask: string; done: string; fail: string }[]> = {
   shopping: [
     { ask: 'купи наушники Sony WH-1000XM5', done: 'лучшая цена 27 990 ₽ на Я.Маркете, рейтинг 4.8', fail: 'ошибка: Ozon не отдал страницу' },
@@ -33,7 +56,7 @@ function syntheticHistory(): AgentRun[] {
     const base = now - day * 86400000
     const push = (agent: AgentId, offsetH: number, status: AgentRun['status']) => {
       const t = iso(base + offsetH * 3600000)
-      runs.push({ run_id: `syn-${agent}-${day}-${offsetH}`, agent, status, started_at: t, finished_at: t, duration_s: null, detail: '' })
+      runs.push({ run_id: `syn-${agent}-${day}-${offsetH}`, agent, status, started_at: t, finished_at: t, duration_s: null, detail: '', reply: '' })
     }
     push('news-digest', 0, 'success')
     if (day % 3 === 0) push('shopping', 6, day % 9 === 0 ? 'error' : 'success')
@@ -65,12 +88,13 @@ export class MockSource {
     const sample = samples[Math.floor(Math.random() * samples.length)]
     const runId = `mock-${++this.seq}`
     const startedMs = Date.now()
-    this.runs.push({ run_id: runId, agent, status: 'running', started_at: iso(startedMs), finished_at: null, duration_s: null, detail: sample.ask })
+    this.runs.push({ run_id: runId, agent, status: 'running', started_at: iso(startedMs), finished_at: null, duration_s: null, detail: sample.ask, reply: '' })
     const doneTimer = window.setTimeout(() => {
-      const ok = Math.random() > 0.2
+      // ?mock=ok — всегда успех (удобно посмотреть ответы в чат), иначе ~20% ошибок.
+      const ok = new URLSearchParams(window.location.search).get('mock') === 'ok' || Math.random() > 0.2
       this.runs = this.runs.map((r) =>
         r.run_id === runId
-          ? { ...r, status: ok ? 'success' : 'error', finished_at: iso(Date.now()), duration_s: Math.round((Date.now() - startedMs) / 1000), detail: ok ? sample.done : sample.fail }
+          ? { ...r, status: ok ? 'success' : 'error', finished_at: iso(Date.now()), duration_s: Math.round((Date.now() - startedMs) / 1000), detail: ok ? sample.done : sample.fail, reply: ok ? SAMPLE_REPLY[agent] : '' }
           : r,
       )
     }, 6000)

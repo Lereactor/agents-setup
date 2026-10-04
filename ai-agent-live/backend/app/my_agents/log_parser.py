@@ -1,6 +1,6 @@
 """Нормализация строк Google Sheets-лога агентов в список «запусков».
 
-Строка лога: timestamp_utc | agent | status | detail | run_id. Агент пишет
+Строка лога: timestamp_utc | agent | status | detail | run_id | reply. Агент пишет
 `started` в начале работы и итог (success/error/skipped) в конце с тем же
 run_id — здесь они склеиваются в один запуск. Старые строки (до 2026-10-04,
 только 3 колонки, без run_id) — каждая сама по себе завершённый запуск.
@@ -54,7 +54,7 @@ def parse_rows(rows: list[list], now: datetime) -> list[dict]:
             else:
                 run_id = open_legacy_start.pop(agent, None) or f"legacy-{index}"
         group = groups.setdefault(run_id, {"agent": agent, "started": None, "final": None})
-        entry = (timestamp, status, _cell(row, 3))
+        entry = (timestamp, status, _cell(row, 3), _cell(row, 5))
         if status == "started":
             group["started"] = entry
         else:
@@ -81,6 +81,8 @@ def parse_rows(rows: list[list], now: datetime) -> list[dict]:
                 "finished_at": _fmt(finished_at),
                 "duration_s": duration,
                 "detail": detail,
+                # Текст, который агент отправил в Telegram (только у итоговой строки).
+                "reply": final[3] if final else "",
             }
         )
     runs.sort(key=lambda r: r["started_at"])

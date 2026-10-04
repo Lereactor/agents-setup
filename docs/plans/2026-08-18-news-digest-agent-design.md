@@ -106,7 +106,12 @@ Environment variables/Secrets Routine.
      -d "status=success" \
      -d "run_id={тот же RUN_ID, что в шаге 0}" \
      --data-urlencode "detail={итог одной строкой, до 150 символов}" \
+     --data-urlencode "reply@/tmp/reply.txt" \
      -d "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" || true
+
+   /tmp/reply.txt — ТОЧНЫЙ текст сообщения, которое ты отправил в Telegram на
+   шаге 4 (или сообщения об ошибке из шага 5): сохрани его в этот файл перед
+   отправкой и отправляй из него же. Его показывает визуализация как «ответ в чат».
 
    detail — например «5 новостей: банки 2, IT 3» или
    «ошибка: Telegram ответил 429».

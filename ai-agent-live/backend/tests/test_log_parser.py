@@ -119,6 +119,19 @@ class ParseRowsTest(unittest.TestCase):
         self.assertEqual(grocery[0]["started_at"], "2026-10-04T00:39:34Z")
         self.assertEqual(grocery[0]["duration_s"], 22)
 
+    def test_reply_comes_from_result_row(self):
+        rows = [
+            HEADER + ["reply"],
+            ["2026-10-04T10:00:00Z", "grocery", "started", "найди овсянку", "r9", ""],
+            ["2026-10-04T10:00:30Z", "grocery", "success", "овсянка → 3 товара", "r9", "🛒 Овсянка\n1. Геркулес — 89 ₽"],
+        ]
+        [run] = parse_rows(rows, NOW)
+        self.assertEqual(run["reply"], "🛒 Овсянка\n1. Геркулес — 89 ₽")
+
+    def test_reply_empty_for_old_rows(self):
+        [run] = parse_rows([HEADER[:3], ["2026-10-03T05:09:06Z", "news-digest", "success"]], NOW)
+        self.assertEqual(run["reply"], "")
+
     def test_empty_input(self):
         self.assertEqual(parse_rows([], NOW), [])
 

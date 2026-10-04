@@ -12,6 +12,8 @@ export interface AgentRun {
   finished_at: string | null
   duration_s: number | null
   detail: string
+  /** Текст ответа, который агент отправил в Telegram (пусто, если не отправлял или до 04.10). */
+  reply: string
 }
 
 export interface LogOk {
