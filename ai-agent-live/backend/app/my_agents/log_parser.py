@@ -32,6 +32,9 @@ def _cell(row: list, index: int) -> str:
 def parse_rows(rows: list[list], now: datetime) -> list[dict]:
     groups: dict[str, dict] = {}
     last_legacy: dict[tuple[str, str], datetime] = {}
+    # agent -> run_id незакрытого started без run_id (Apps Script старой версии не
+    # сохраняет run_id) — следующий итог того же агента закрывает именно его.
+    open_legacy_start: dict[str, str] = {}
     for index, row in enumerate(rows):
         timestamp = _parse_ts(_cell(row, 0))
         agent = _cell(row, 1)
@@ -46,7 +49,10 @@ def parse_rows(rows: list[list], now: datetime) -> list[dict]:
             last_legacy[(agent, status)] = timestamp
             if previous and timestamp - previous <= LEGACY_DUPLICATE_WINDOW:
                 continue
-            run_id = f"legacy-{index}"
+            if status == "started":
+                run_id = open_legacy_start[agent] = f"legacy-{index}"
+            else:
+                run_id = open_legacy_start.pop(agent, None) or f"legacy-{index}"
         group = groups.setdefault(run_id, {"agent": agent, "started": None, "final": None})
         entry = (timestamp, status, _cell(row, 3))
         if status == "started":

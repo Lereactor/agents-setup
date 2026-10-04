@@ -103,6 +103,22 @@ class ParseRowsTest(unittest.TestCase):
             ],
         )
 
+    def test_started_without_run_id_pairs_with_next_result_of_same_agent(self):
+        # Если Apps Script ещё старой версии, run_id не сохраняется — склеиваем
+        # started со следующим итогом того же агента, иначе старт «работает» вечно.
+        rows = [
+            HEADER,
+            ["2026-10-04T00:39:34Z", "grocery", "started", "", ""],
+            ["2026-10-04T00:39:40Z", "shopping", "success", "", ""],
+            ["2026-10-04T00:39:56Z", "grocery", "success", "", ""],
+        ]
+        runs = parse_rows(rows, NOW)
+        grocery = [r for r in runs if r["agent"] == "grocery"]
+        self.assertEqual(len(grocery), 1)
+        self.assertEqual(grocery[0]["status"], "success")
+        self.assertEqual(grocery[0]["started_at"], "2026-10-04T00:39:34Z")
+        self.assertEqual(grocery[0]["duration_s"], 22)
+
     def test_empty_input(self):
         self.assertEqual(parse_rows([], NOW), [])
 
