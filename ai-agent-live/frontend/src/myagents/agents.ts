@@ -7,6 +7,8 @@ export interface AgentMeta {
   /** Основной цвет агента — свечение карточки, частицы на рёбрах, тепловая карта. */
   color: string
   trigger: string
+  /** Для агентов по расписанию — строка на карточке вместо отдельного узла-таймера. */
+  schedule?: string
   description: string
 }
 
@@ -49,6 +51,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     emoji: '📰',
     color: '#ffb347',
     trigger: 'каждый день в 08:00',
+    schedule: '⏰ каждый день в 08:00',
     description: 'Дайджест: банки и IT, до 5 главных новостей',
   },
   watchdog: {
@@ -57,6 +60,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     emoji: '🛡️',
     color: '#b18cff',
     trigger: 'фоном каждые 6 часов, отчёт в 09:00',
+    schedule: '⏰ каждые 6 ч · отчёт в 09:00',
     description: 'Ловит циклы и зависания: ставит агента на паузу, повторяет зависший запрос',
   },
 }

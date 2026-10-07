@@ -15,34 +15,36 @@ export interface ParticleEdgeData {
   watch?: boolean
 }
 
-/** Статичная топология системы агентов (см. agents-setup-brief.md и дизайн-доки агентов):
- *  Telegram → Cloudflare Worker → shopping / grocery / travel / booking; расписания → news-digest, watchdog;
- *  watchdog наблюдает за остальными через лог. */
+/** Топология и раскладка «на один экран», без пересечений линий:
+ *
+ *                    🦁 Лев
+ *     🛒 Покупки        │        🚆 Поездки
+ *                ╲      │      ╱
+ *                  ⚡ Слушатель
+ *                ╱      │      ╲
+ *     🥕 Продукты       │        🏡 Жильё
+ *                       │
+ *          📰 Новости ─ 🛡️ Надзиратель
+ *
+ *  Надзиратель связан со слушателем (пауза и повтор идут через его /admin) и с новостями.
+ *  Расписания — строкой на карточках Новостей и Надзирателя. Ось симметрии x = 385. */
 export const sourceNodes: Node<SourceNodeData>[] = [
-  { id: 'telegram', type: 'source', position: { x: 10, y: 120 }, data: { label: 'Лев', icon: '🦁', sub: 'пишет в Telegram' } },
-  { id: 'worker', type: 'source', position: { x: 10, y: 420 }, data: { label: 'Слушатель', icon: '⚡', sub: 'Cloudflare Worker' } },
-  { id: 'cron-news', type: 'source', position: { x: 960, y: 85 }, data: { label: '08:00', icon: '⏰', sub: 'расписание' } },
-  { id: 'cron-watch', type: 'source', position: { x: 960, y: 465 }, data: { label: 'каждые 6 ч', icon: '⏰', sub: 'отчёт в 09:00' } },
+  { id: 'telegram', type: 'source', position: { x: 300, y: 0 }, data: { label: 'Лев', icon: '🦁', sub: 'пишет в Telegram' } },
+  { id: 'worker', type: 'source', position: { x: 300, y: 215 }, data: { label: 'Слушатель', icon: '⚡', sub: 'Cloudflare Worker' } },
 ]
 
 export const AGENT_POSITIONS: Record<AgentId, { x: number; y: number }> = {
-  shopping: { x: 270, y: 0 },
-  grocery: { x: 270, y: 300 },
-  travel: { x: 270, y: 600 },
-  booking: { x: 270, y: 900 },
-  'news-digest': { x: 640, y: 0 },
-  watchdog: { x: 640, y: 380 },
+  shopping: { x: -60, y: 0 },
+  grocery: { x: -60, y: 250 },
+  travel: { x: 570, y: 0 },
+  booking: { x: 570, y: 250 },
+  'news-digest': { x: -25, y: 510 },
+  watchdog: { x: 255, y: 510 },
 }
 
-/** Телефон: только карточки агентов сеткой в 2 колонки — на узком экране полный граф со
- *  узлами-источниками ужимается до нечитаемого. */
-export const AGENT_POSITIONS_NARROW: Record<AgentId, { x: number; y: number }> = {
-  shopping: { x: 0, y: 0 },
-  grocery: { x: 280, y: 0 },
-  travel: { x: 0, y: 270 },
-  'news-digest': { x: 280, y: 270 },
-  watchdog: { x: 280, y: 540 },
-  booking: { x: 0, y: 540 },
+export const DEFAULT_POSITIONS: Record<string, { x: number; y: number }> = {
+  ...Object.fromEntries(sourceNodes.map((n) => [n.id, n.position])),
+  ...AGENT_POSITIONS,
 }
 
 type EdgeSpec = Omit<Edge<ParticleEdgeData>, 'type'> & { data: ParticleEdgeData }
@@ -56,24 +58,21 @@ const COLORS: Record<AgentId, string> = {
   watchdog: '#b18cff',
 }
 
+// Стороны подключения ParticleEdge выбирает сам по взаимному положению карточек, поэтому
+// после перетаскивания линии остаются теми же связями и цепляются за ближнюю сторону.
 const specs: EdgeSpec[] = [
-  { id: 'tg-worker', source: 'telegram', sourceHandle: 'out-b', target: 'worker', targetHandle: 'in-t', data: { color: '#58a6ff', agent: 'shopping' } },
-  { id: 'worker-shopping', source: 'worker', sourceHandle: 'out-r', target: 'shopping', targetHandle: 'in-l', data: { color: COLORS.shopping, agent: 'shopping' } },
-  { id: 'worker-grocery', source: 'worker', sourceHandle: 'out-r', target: 'grocery', targetHandle: 'in-l', data: { color: COLORS.grocery, agent: 'grocery' } },
-  { id: 'worker-travel', source: 'worker', sourceHandle: 'out-r', target: 'travel', targetHandle: 'in-l', data: { color: COLORS.travel, agent: 'travel' } },
-  { id: 'worker-booking', source: 'worker', sourceHandle: 'out-r', target: 'booking', targetHandle: 'in-l', data: { color: COLORS.booking, agent: 'booking' } },
-  { id: 'cron-news', source: 'cron-news', sourceHandle: 'out-l', target: 'news-digest', targetHandle: 'in-r', data: { color: COLORS['news-digest'], agent: 'news-digest' } },
-  { id: 'cron-watch', source: 'cron-watch', sourceHandle: 'out-l', target: 'watchdog', targetHandle: 'in-r', data: { color: COLORS.watchdog, agent: 'watchdog' } },
-  { id: 'watch-news', source: 'watchdog', sourceHandle: 'out-t', target: 'news-digest', targetHandle: 'in-b', data: { color: COLORS.watchdog, agent: 'watchdog', watch: true } },
-  { id: 'watch-shopping', source: 'watchdog', sourceHandle: 'out-l', target: 'shopping', targetHandle: 'in-r', data: { color: COLORS.watchdog, agent: 'watchdog', watch: true } },
-  { id: 'watch-grocery', source: 'watchdog', sourceHandle: 'out-l', target: 'grocery', targetHandle: 'in-r', data: { color: COLORS.watchdog, agent: 'watchdog', watch: true } },
-  { id: 'watch-travel', source: 'watchdog', sourceHandle: 'out-l', target: 'travel', targetHandle: 'in-r', data: { color: COLORS.watchdog, agent: 'watchdog', watch: true } },
-  { id: 'watch-booking', source: 'watchdog', sourceHandle: 'out-l', target: 'booking', targetHandle: 'in-r', data: { color: COLORS.watchdog, agent: 'watchdog', watch: true } },
+  { id: 'tg-worker', source: 'telegram', target: 'worker', data: { color: '#58a6ff', agent: 'shopping' } },
+  { id: 'worker-shopping', source: 'worker', target: 'shopping', data: { color: COLORS.shopping, agent: 'shopping' } },
+  { id: 'worker-grocery', source: 'worker', target: 'grocery', data: { color: COLORS.grocery, agent: 'grocery' } },
+  { id: 'worker-travel', source: 'worker', target: 'travel', data: { color: COLORS.travel, agent: 'travel' } },
+  { id: 'worker-booking', source: 'worker', target: 'booking', data: { color: COLORS.booking, agent: 'booking' } },
+  { id: 'watch-worker', source: 'watchdog', target: 'worker', data: { color: COLORS.watchdog, agent: 'watchdog', watch: true } },
+  { id: 'watch-news', source: 'watchdog', target: 'news-digest', data: { color: COLORS.watchdog, agent: 'watchdog', watch: true } },
 ]
 
 export const baseEdges: Edge<ParticleEdgeData>[] = specs.map((e) => ({ ...e, type: 'particle' }))
 
-/** Ребро Telegram → Worker общее для shopping, grocery, travel и booking — оживает от любого из них. */
+/** Ребро Лев → Слушатель общее для агентов по сообщению — оживает от любого из них. */
 export function edgeAgents(edge: Edge<ParticleEdgeData>): AgentId[] {
   return edge.id === 'tg-worker' ? ['shopping', 'grocery', 'travel', 'booking'] : [edge.data!.agent]
 }

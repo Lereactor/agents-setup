@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import ReactFlow, { Background, type Edge, type Node } from 'reactflow'
+import ReactFlow, { Background, Controls, type Edge, type Node, type NodeChange, type ReactFlowInstance } from 'reactflow'
 import 'reactflow/dist/style.css'
 import AgentCardNode, { type AgentCardData } from './AgentCardNode'
 import AgentPanel from './AgentPanel'
 import { AGENT_ORDER, isAgentId } from './agents'
 import Heatmap from './Heatmap'
 import HistoryFeed from './HistoryFeed'
-import { AGENT_POSITIONS, AGENT_POSITIONS_NARROW, baseEdges, edgeAgents, sourceNodes, type ParticleEdgeData } from './layout'
+import { DEFAULT_POSITIONS, baseEdges, edgeAgents, sourceNodes, type ParticleEdgeData } from './layout'
 import ParticleEdge from './ParticleEdge'
 import SourceNode from './SourceNode'
 import { formatAgo, todayCounts } from './stats'
@@ -27,6 +27,8 @@ const CATCHUP_MS = 3500
 const STEP_MS = 1200
 const PULSE_LIVE_MS = 4000
 const PULSE_REPLAY_MS = 1400
+// ответ агента при проигрывании висит столько реальных мс (время в этот момент идёт медленно)
+const REPLAY_REPLY_MS = 3000
 
 type Flash = { status: RunStatus; key: number }
 
@@ -36,8 +38,29 @@ const SOURCES_OF: Record<AgentId, string[]> = {
   grocery: ['telegram', 'worker'],
   travel: ['telegram', 'worker'],
   booking: ['telegram', 'worker'],
-  'news-digest': ['cron-news'],
-  watchdog: ['cron-watch'],
+  'news-digest': [],
+  watchdog: ['worker'],
+}
+
+type Positions = Record<string, { x: number; y: number }>
+const POSITIONS_KEY = 'ma-positions-v2'
+
+/** Свои позиции карточек (перетаскивание мышкой/пальцем) — только в этом браузере. */
+function loadPositions(): Positions {
+  try {
+    return JSON.parse(localStorage.getItem(POSITIONS_KEY) || '{}') as Positions
+  } catch {
+    return {}
+  }
+}
+
+function savePositions(positions: Positions) {
+  try {
+    if (Object.keys(positions).length) localStorage.setItem(POSITIONS_KEY, JSON.stringify(positions))
+    else localStorage.removeItem(POSITIONS_KEY)
+  } catch {
+    /* приватный режим — просто не запоминаем */
+  }
 }
 
 function useNarrow(): boolean {
@@ -54,6 +77,49 @@ function useNarrow(): boolean {
 
 export default function MyAgentsView() {
   const narrow = useNarrow()
+  const [positions, setPositions] = useState<Positions>(loadPositions)
+  const [layoutKey, setLayoutKey] = useState(0)
+  // Схема всегда целиком на экране: вписываем заново при любом изменении размера холста
+  // (поворот телефона, первая отрисовка до загрузки стилей, сворачивание панелей).
+  const flowRef = useRef<ReactFlowInstance | null>(null)
+  const canvasRef = useRef<HTMLDivElement | null>(null)
+  const fitPadding = narrow ? 0.03 : 0.06
+  useEffect(() => {
+    const el = canvasRef.current
+    if (!el) return
+    const observer = new ResizeObserver(() => flowRef.current?.fitView({ padding: fitPadding }))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [fitPadding])
+  // Размеры карточек храним сами: React Flow при частых обновлениях (проигрывание истории)
+  // пересобирает узлы без размеров и прячет их (visibility: hidden) — отсюда «пропадающие»
+  // карточки и пустой холст в конце проигрывания.
+  const [dims, setDims] = useState<Record<string, { width: number; height: number }>>({})
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    const sized = changes.filter((c) => c.type === 'dimensions' && c.dimensions)
+    if (sized.length) {
+      setDims((prev) => {
+        const next = { ...prev }
+        for (const c of sized) if (c.type === 'dimensions' && c.dimensions) next[c.id] = c.dimensions
+        return next
+      })
+    }
+    const moved = changes.filter((c) => c.type === 'position')
+    if (!moved.length) return
+    // в конце перетаскивания приходит change с dragging: false и без координат — тогда сохраняем
+    const dragEnd = moved.some((c) => c.type === 'position' && c.dragging === false)
+    setPositions((prev) => {
+      const next = { ...prev }
+      for (const c of moved) if (c.type === 'position' && c.position) next[c.id] = c.position
+      if (dragEnd) savePositions(next)
+      return next
+    })
+  }, [])
+  const resetLayout = () => {
+    setPositions({})
+    savePositions({})
+    setLayoutKey((k) => k + 1)
+  }
   const [flash, setFlash] = useState<Partial<Record<AgentId, Flash>>>({})
   const [replyPop, setReplyPop] = useState<Partial<Record<AgentId, AgentCardData['replyPop']>>>({})
   const [pulseUntil, setPulseUntil] = useState<Partial<Record<AgentId, number>>>({})
@@ -131,7 +197,7 @@ export default function MyAgentsView() {
         if (!isAgentId(run.agent)) return
         setReplayLast((r) => ({ ...r, [run.agent]: run }))
         fire(run.agent, run.status === 'running' || run.status === 'stale' ? 'success' : run.status, PULSE_REPLAY_MS)
-        popReply(run.agent, run, 2200)
+        popReply(run.agent, run, REPLAY_REPLY_MS)
       },
       [fire, popReply],
     ),
@@ -157,12 +223,13 @@ export default function MyAgentsView() {
   }, [log.runs])
 
   const now = Date.now()
+  const replayActive = replay.playing ? replay.activeRuns(replay.virtualTime) : []
   const agentState = AGENT_ORDER.reduce(
     (acc, agent) => {
       const ghost = replay.playing ? undefined : catchup[agent]
       const runs = ghost ? byAgent[agent].filter((r) => r.run_id !== ghost.run_id) : byAgent[agent]
       const current = replay.playing
-        ? null
+        ? [...replayActive].reverse().find((r) => r.agent === agent) ?? null
         : ghost ?? [...runs].reverse().find((r) => r.status === 'running' || r.status === 'stale') ?? null
       const last = replay.playing
         ? replayLast[agent] ?? null
@@ -175,15 +242,18 @@ export default function MyAgentsView() {
   )
 
   const nodes: Node[] = [
-    ...(narrow ? [] : sourceNodes).map((n) => ({
+    ...sourceNodes.map((n) => ({
       ...n,
+      position: positions[n.id] ?? n.position,
+      ...dims[n.id],
       data: { ...n.data, active: AGENT_ORDER.some((a) => agentState[a].active && SOURCES_OF[a].includes(n.id)) },
     })),
     ...AGENT_ORDER.map(
       (agent): Node<AgentCardData> => ({
         id: agent,
         type: 'agentCard',
-        position: (narrow ? AGENT_POSITIONS_NARROW : AGENT_POSITIONS)[agent],
+        position: positions[agent] ?? DEFAULT_POSITIONS[agent],
+        ...dims[agent],
         data: {
           agent,
           current: agentState[agent].current,
@@ -192,12 +262,13 @@ export default function MyAgentsView() {
           today: todayCounts(byAgent[agent]),
           selected: selected === agent,
           replyPop: replyPop[agent] ?? null,
+          clock: replay.playing ? replay.virtualTime : null,
         },
       }),
     ),
   ]
 
-  const edges: Edge<ParticleEdgeData & { active: boolean }>[] = (narrow ? [] : baseEdges).map((e) => ({
+  const edges: Edge<ParticleEdgeData & { active: boolean }>[] = baseEdges.map((e) => ({
     ...e,
     data: { ...e.data!, active: edgeAgents(e).some((a) => agentState[a].active) },
   }))
@@ -231,6 +302,7 @@ export default function MyAgentsView() {
               <div className="replay-bar">
                 <div className="replay-bar__fill" style={{ width: `${replay.progress * 100}%` }} />
                 <span>
+                  {replay.slow ? '▶ работа · ' : '⏩ '}
                   {replay.virtualTime &&
                     new Date(replay.virtualTime).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                 </span>
@@ -252,7 +324,7 @@ export default function MyAgentsView() {
         </div>
       </header>
 
-      <div className="ma-canvas">
+      <div className="ma-canvas" ref={canvasRef}>
         {log.error === 'not_configured' && (
           <div className="ma-overlay">
             <h3>Лог агентов не подключён</h3>
@@ -280,22 +352,34 @@ export default function MyAgentsView() {
           </div>
         )}
         <ReactFlow
-          key={narrow ? 'narrow' : 'wide'} /* смена раскладки — заново вписать граф */
+          key={`${narrow ? 'narrow' : 'wide'}-${layoutKey}`} /* смена экрана или «как было» — заново вписать граф */
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodeClick={(_, node) => isAgentId(node.id) && setSelected(selected === node.id ? null : node.id)}
           onPaneClick={() => setSelected(null)}
-          nodesDraggable={false}
+          nodesDraggable
+          onNodesChange={onNodesChange}
           nodesConnectable={false}
           fitView
-          fitViewOptions={{ padding: narrow ? 0.04 : 0.12 }}
+          fitViewOptions={{ padding: fitPadding }}
+          onInit={(instance) => {
+            flowRef.current = instance
+            requestAnimationFrame(() => instance.fitView({ padding: fitPadding }))
+          }}
           minZoom={0.3}
           proOptions={{ hideAttribution: true }}
         >
           <Background gap={28} color="#1d2333" />
+          <Controls showInteractive={false} position="bottom-left" />
         </ReactFlow>
+        {Object.keys(positions).length > 0 && (
+          <button className="btn ma-reset-layout" onClick={resetLayout} title="Вернуть карточки на свои места">
+            ↺ как было
+          </button>
+        )}
+        <div className="ma-drag-hint dim">карточки можно двигать</div>
       </div>
 
       <AgentPanel agent={selected} runs={log.runs} onSelect={setSelected} />

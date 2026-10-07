@@ -23,6 +23,8 @@ export interface AgentCardData {
   selected: boolean
   /** Свежий ответ в Telegram — на несколько секунд всплывает пузырём над карточкой. */
   replyPop: { text: string; at: string | null; key: number } | null
+  /** Во время проигрывания истории — виртуальное «сейчас» (для таймера и «N мин назад»). */
+  clock?: number | null
 }
 
 const ART: Record<AgentId, (p: { active: boolean }) => JSX.Element> = {
@@ -51,7 +53,8 @@ export default function AgentCardNode({ data }: NodeProps<AgentCardData>) {
   const Art = ART[data.agent]
   const live = data.current?.status
   const active = live === 'running' || data.flash !== null
-  const now = useTicker(live === 'running')
+  const realNow = useTicker(live === 'running')
+  const now = data.clock ?? realNow
 
   const shown = data.current ?? data.last
   const badge: RunStatus | null = live ?? data.last?.status ?? null
@@ -100,6 +103,7 @@ export default function AgentCardNode({ data }: NodeProps<AgentCardData>) {
           </span>
           {badge && <span className={`status-badge status-badge--${badge}`}>{STATUS_LABEL[badge]}</span>}
         </div>
+        {meta.schedule && <div className="agent-card__schedule">{meta.schedule}</div>}
 
         {live === 'running' && data.current && data.current.steps.length > 0 ? (
           // идёт работа — показываем текущий шаг агента, запрос остаётся в подсказке
@@ -116,7 +120,7 @@ export default function AgentCardNode({ data }: NodeProps<AgentCardData>) {
           </div>
         ) : (
           <div className="agent-card__detail" title={shown?.detail || undefined}>
-            {shown?.detail ? `«${shown.detail}»` : <span className="dim">{meta.trigger}</span>}
+            {shown?.detail ? `«${shown.detail}»` : <span className="dim">{meta.schedule ? meta.description : meta.trigger}</span>}
           </div>
         )}
 

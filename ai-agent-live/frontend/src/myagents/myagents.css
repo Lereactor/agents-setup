@@ -1432,3 +1432,39 @@
     font-size: 15px;
   }
 }
+
+/* ===== Раскладка: перетаскивание, «как было», расписание на карточке ===== */
+.ma-reset-layout {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+}
+.ma-drag-hint {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  z-index: 5;
+  font-size: 11px;
+  pointer-events: none;
+}
+.agent-card__schedule {
+  margin: -2px 0 4px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--agent-color) 70%, #c9d1e3);
+}
+.react-flow__node.dragging .agent-card {
+  cursor: grabbing;
+  transform: scale(1.02);
+}
+.react-flow__controls button {
+  background: #151b2b;
+  border-color: #263048;
+  fill: #c9d1e3;
+}
+@media (max-width: 900px) {
+  .ma-canvas {
+    height: 115vw; /* вся схема — на ширину экрана, без прокрутки */
+    max-height: 78vh;
+  }
+}
