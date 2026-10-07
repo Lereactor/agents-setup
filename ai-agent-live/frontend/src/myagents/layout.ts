@@ -22,7 +22,7 @@ export const sourceNodes: Node<SourceNodeData>[] = [
   { id: 'telegram', type: 'source', position: { x: 10, y: 120 }, data: { label: 'Лев', icon: '🦁', sub: 'пишет в Telegram' } },
   { id: 'worker', type: 'source', position: { x: 10, y: 420 }, data: { label: 'Слушатель', icon: '⚡', sub: 'Cloudflare Worker' } },
   { id: 'cron-news', type: 'source', position: { x: 960, y: 85 }, data: { label: '08:00', icon: '⏰', sub: 'расписание' } },
-  { id: 'cron-watch', type: 'source', position: { x: 960, y: 465 }, data: { label: '09:00', icon: '⏰', sub: 'расписание' } },
+  { id: 'cron-watch', type: 'source', position: { x: 960, y: 465 }, data: { label: 'каждые 6 ч', icon: '⏰', sub: 'отчёт в 09:00' } },
 ]
 
 export const AGENT_POSITIONS: Record<AgentId, { x: number; y: number }> = {

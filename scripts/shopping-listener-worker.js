@@ -22,6 +22,8 @@
 //   ROUTINE_TRIGGER_TOKEN_TRAVEL   — Bearer-токен для этого эндпоинта
 //   TELEGRAM_BOT_TOKEN             — токен @LAgentsControl_bot (для голосовых:
 //                                    скачать файл + отправить ack/ошибку в чат)
+//   WATCHDOG_ADMIN_TOKEN           — ключ надзирателя для /admin/* (пауза агента,
+//                                    повтор зависшего запроса, статус)
 //
 // Bindings — Settings → Bindings:
 //   AI  — Workers AI binding (для распознавания голосовых через Whisper),
@@ -53,7 +55,20 @@ const TRAVEL_WORD_PREFIXES = [
 ];
 const TRAVEL_EXACT_WORDS = ['жд', 'ржд'];
 
-const TARGET_LABELS = { grocery: 'ВкусВиллу', travel: 'агенту поездок', shopping: 'Shopping-агенту' };
+// Как агент называется в ответах в чат: «✅ Взял в работу: 🚆 Поездки (Туту)».
+const AGENT_LABELS = {
+  grocery: '🥕 Продукты (ВкусВилл)',
+  travel: '🚆 Поездки (Туту)',
+  shopping: '🛒 Покупки (Ozon, Я.Маркет)'
+};
+// «включи поездки» — снять паузу, которую поставил надзиратель.
+const AGENT_NAMES = {
+  grocery: ['продукты', 'вкусвилл', 'grocery'],
+  travel: ['поездки', 'туту', 'travel'],
+  shopping: ['покупки', 'shopping']
+};
+// Запуски храним 2 суток — надзирателю этого хватает, чтобы найти и повторить зависший.
+const FIRE_TTL_S = 172800;
 
 // «помощь» / «?» — сразу отвечаем шпаргалкой, без запуска агентов. Только если
 // сообщение целиком состоит из такого слова (иначе «помощь с билетом в Казань»
@@ -79,10 +94,16 @@ const HELP_TEXT = `🦁 Шпаргалка по агентам
 • фото товара с подписью «купи такое»
 
 📰 Новости — сами, каждый день в 08:00
-🛡️ Надзиратель — проверяет всех агентов в 09:00
+🛡️ Надзиратель — фоном каждые 6 часов, отчёт в 09:00. Зациклившегося агента ставит на паузу, зависший запрос повторяет. Снять паузу — «включи поездки» (продукты, покупки).
 
 🎙️ Можно голосом — те же слова.
 ❓ Эта подсказка — «помощь» или «?»`;
+
+function parseResumeCommand(text) {
+  const m = (text || '').trim().toLowerCase().match(/^(?:включи|запусти)\s+(?:агента?\s+)?([a-zа-яё]+)[!.]*$/u);
+  if (!m) return null;
+  return Object.keys(AGENT_NAMES).find((agent) => AGENT_NAMES[agent].includes(m[1])) || null;
+}
 
 function isHelpRequest(text) {
   if (!text) return false;
@@ -229,6 +250,93 @@ async function triggerRoutine(env, target, params) {
   return { status: resp.status, body: await resp.text() };
 }
 
+async function getPause(env, target) {
+  if (!env.UPDATE_CACHE) return null;
+  const raw = await env.UPDATE_CACHE.get('paused:' + target);
+  return raw ? JSON.parse(raw) : null;
+}
+
+// Общий путь запуска агента для текста, фото и голоса: пауза → ack с именем агента →
+// fire → запись запуска (для повтора надзирателем).
+async function dispatch(env, target, params, ackText, recordExtra = {}) {
+  const reply = (text) =>
+    sendTelegramMessage(env, {
+      chatId: params.chat_id,
+      text,
+      replyToMessageId: params.message_id,
+      businessConnectionId: params.business_connection_id
+    });
+
+  const pause = await getPause(env, target);
+  if (pause) {
+    await reply(
+      `⏸ ${AGENT_LABELS[target]} на паузе — ${pause.reason || 'поставил надзиратель'}.\n` +
+        `Включить: «включи ${AGENT_NAMES[target][0]}».`
+    );
+    return { paused: true };
+  }
+
+  await reply(ackText);
+  const fireResult = await triggerRoutine(env, target, params);
+  if (env.UPDATE_CACHE && fireResult.status === 200) {
+    const at = Date.now();
+    await env.UPDATE_CACHE.put(`fire:${target}:${at}`, JSON.stringify({ at, params, ...recordExtra }), { expirationTtl: FIRE_TTL_S });
+  }
+  return fireResult;
+}
+
+// Служебные команды надзирателя (Routine Guard). POST /admin/<action>,
+// Authorization: Bearer WATCHDOG_ADMIN_TOKEN, тело JSON.
+//   pause   {agent, reason}      — поставить на паузу (слушатель перестаёт запускать агента)
+//   retry   {agent, started_at}  — один раз повторить запрос, запуск которого завис
+//   status  {}                   — какие агенты на паузе
+async function handleAdmin(env, action, body) {
+  const agent = body.agent;
+  if (action === 'status') {
+    const paused = {};
+    for (const a of Object.keys(AGENT_LABELS)) {
+      const p = await getPause(env, a);
+      if (p) paused[a] = p;
+    }
+    return { ok: true, paused };
+  }
+  if (!AGENT_LABELS[agent]) return { ok: false, error: 'unknown agent' };
+
+  if (action === 'pause') {
+    const pause = { reason: body.reason || '', at: new Date().toISOString() };
+    await env.UPDATE_CACHE.put('paused:' + agent, JSON.stringify(pause));
+    return { ok: true, paused: agent };
+  }
+
+  if (action === 'retry') {
+    // Запуск, который агент отметил как started в started_at, — последний fire этого
+    // агента не позже started_at (агенту нужно до пары минут, чтобы стартовать).
+    const startedMs = Date.parse(body.started_at);
+    if (Number.isNaN(startedMs)) return { ok: false, error: 'bad started_at' };
+    const list = await env.UPDATE_CACHE.list({ prefix: `fire:${agent}:` });
+    const candidates = list.keys
+      .map((k) => ({ key: k.name, at: Number(k.name.split(':')[2]) }))
+      .filter((k) => k.at <= startedMs + 60000 && k.at >= startedMs - 10 * 60000)
+      .sort((x, y) => y.at - x.at);
+    if (!candidates.length) return { ok: false, error: 'fire not found' };
+    const record = JSON.parse(await env.UPDATE_CACHE.get(candidates[0].key));
+    if (record.retried) return { ok: false, error: 'already retried' };
+    if (await getPause(env, agent)) return { ok: false, error: 'agent paused' };
+    await env.UPDATE_CACHE.put(candidates[0].key, JSON.stringify({ ...record, retried: true }), { expirationTtl: FIRE_TTL_S });
+    const fireResult = await dispatch(
+      env,
+      agent,
+      record.params,
+      `🔁 Прошлый запуск завис — повторяю. Снова в работе: ${AGENT_LABELS[agent]}`,
+      // повтор сам не повторяется — даже если и он зависнет
+      { retried: true }
+    );
+    return { ok: true, retried: agent, text: record.params.text, fire_status: fireResult.status };
+  }
+
+  return { ok: false, error: 'unknown action' };
+}
+
 // Ветка для голосовых сообщений: транскрипция → определение target → ack/
 // сообщение об ошибке в чат → fire нужной Routine. Асинхронная, поэтому
 // вызывается отдельно от синхронного пути текста/фото (см. fetch()).
@@ -266,8 +374,6 @@ async function processVoiceMessage(env, message, update, candidate) {
     return { ok: true, skipped: 'no trigger word in transcript', transcript };
   }
 
-  await notify(`🎙️ Понял: "${transcript}" — передаю ${TARGET_LABELS[target]}.`);
-
   const params = {
     chat_id: chatId,
     message_id: messageId,
@@ -275,7 +381,7 @@ async function processVoiceMessage(env, message, update, candidate) {
     text: transcript,
     photo_file_id: ''
   };
-  const fireResult = await triggerRoutine(env, target, params);
+  const fireResult = await dispatch(env, target, params, `🎙️ Понял: "${transcript}"\n✅ Взял в работу: ${AGENT_LABELS[target]}`);
   return { ok: true, triggered: true, target, transcript, fire_status: fireResult.status, fire_body: fireResult.body };
 }
 
@@ -288,6 +394,21 @@ export default {
 
     if (request.method !== 'POST') {
       return new Response('ok', { status: 200 });
+    }
+
+    const adminMatch = new URL(request.url).pathname.match(/^\/admin\/(\w+)$/);
+    if (adminMatch) {
+      const auth = request.headers.get('Authorization') || '';
+      if (!env.WATCHDOG_ADMIN_TOKEN || auth !== 'Bearer ' + env.WATCHDOG_ADMIN_TOKEN) {
+        return new Response('forbidden', { status: 403 });
+      }
+      let body = {};
+      try {
+        body = JSON.parse((await request.text()) || '{}');
+      } catch (err) {
+        return json({ ok: false, error: 'invalid json' });
+      }
+      return json(await handleAdmin(env, adminMatch[1], body));
     }
 
     const rawBody = await request.text();
@@ -346,6 +467,21 @@ export default {
       return json({ ok: true, help: true });
     }
 
+    const resumeAgent = parseResumeCommand(candidate.text);
+    if (resumeAgent && env.UPDATE_CACHE) {
+      const wasPaused = await getPause(env, resumeAgent);
+      await env.UPDATE_CACHE.delete('paused:' + resumeAgent);
+      const done = sendTelegramMessage(env, {
+        chatId: message.chat.id,
+        text: wasPaused ? `▶️ ${AGENT_LABELS[resumeAgent]} снова работает.` : `${AGENT_LABELS[resumeAgent]} и так работает.`,
+        replyToMessageId: message.message_id,
+        businessConnectionId: update.business_message ? (message.business_connection_id || '') : ''
+      });
+      if (isDebug) await done;
+      else ctx.waitUntil(done);
+      return json({ ok: true, resumed: resumeAgent });
+    }
+
     const target = detectTarget(candidate.text);
     if (!target) {
       return json({ ok: true, skipped: 'no trigger word' });
@@ -359,22 +495,15 @@ export default {
       photo_file_id: candidate.photoFileId
     };
 
-    const sendAck = () =>
-      sendTelegramMessage(env, {
-        chatId: params.chat_id,
-        text: '✅ Принял, работаю…',
-        replyToMessageId: params.message_id,
-        businessConnectionId: params.business_connection_id
-      });
+    const ackText = `✅ Взял в работу: ${AGENT_LABELS[target]}`;
 
     // Диагностический режим (?debug=1): дожидаемся ответа fire и возвращаем
     // его в теле — удобно для ручной проверки через curl. В обычной работе
     // (реальные апдейты от Telegram) этот параметр не передаётся, и
     // используется быстрый путь ниже.
     if (isDebug) {
-      await sendAck();
-      const fireResult = await triggerRoutine(env, target, params);
-      return json({ ok: true, triggered: true, target, fire_status: fireResult.status, fire_body: fireResult.body });
+      const fireResult = await dispatch(env, target, params, ackText);
+      return json({ ok: true, triggered: !fireResult.paused, target, ...fireResult });
     }
 
     // Отвечаем Telegram сразу (200), а сам ack + fire-вызов (может занимать
@@ -384,8 +513,7 @@ export default {
     // пришёл раньше ответа агента, а не вперемешку с ним.
     ctx.waitUntil(
       (async () => {
-        await sendAck();
-        await triggerRoutine(env, target, params);
+        await dispatch(env, target, params, ackText);
       })()
     );
 
