@@ -59,8 +59,15 @@ const TRAVEL_WORD_PREFIXES = [
 const BOOKING_WORD_PREFIXES = [
   'отел', 'гостиниц', 'хостел', 'апартамент', 'квартир', 'коттедж', 'шале',
   'лофт', 'глэмпинг', 'глемпинг', 'жиль', 'жилье', 'жильё', 'посуточн',
-  'суточно', 'переноч', 'островок'
+  'суточно', 'переноч', 'островок', 'букинг', 'booking', 'airbnb', 'эйрбнб',
+  'мотел', 'гестхаус', 'гостев', 'санатор', 'пансионат', 'турбаз'
 ];
+// Многозначные глаголы («снять деньги», «забронировать билет/столик») — к жилью,
+// только если рядом есть слово про ночлег и нет слов про транспорт/столик.
+const BOOKING_VERB_PREFIXES = ['заброниров', 'заброниру', 'забронь', 'бронир', 'бронь', 'аренд', 'снять', 'сними', 'сниму', 'снимем', 'снимешь', 'снимите'];
+const BOOKING_CONTEXT_EXACT = ['дом', 'домик', 'домики', 'дача', 'дачу', 'номер', 'номера', 'номерок'];
+const BOOKING_CONTEXT_PREFIXES = ['комнат', 'ноч', 'сутк', 'суток', 'выходн'];
+const BOOKING_VERB_BLOCKERS = ['столик', 'билет', 'место', 'места', 'машин', 'авто', 'деньг', 'видео', 'фото'];
 const TRAVEL_EXACT_WORDS = ['жд', 'ржд'];
 
 // Как агент называется в ответах в чат: «✅ Взял в работу: 🚆 Поездки (Туту)».
@@ -98,7 +105,7 @@ const HELP_TEXT = `🦁 Шпаргалка по агентам
 • самолёт в Сочи на выходные, с багажом
 Не написал откуда, когда или сколько — считаю: из Москвы, завтра, 1 взрослый (и пишу это в ответе).
 
-🏡 Жильё (Суточно, Островок, Авито, Туту) — «отель», «квартира», «коттедж», «шале», «лофт», «жильё», «посуточно»
+🏡 Жильё (Суточно, Островок, Авито, Туту) — «отель», «квартира», «коттедж», «жильё», «посуточно», «букинг», «сними/забронируй … на ночь»
 • коттедж под Казанью на выходные на 6 человек, с баней
 • квартира в Питере с 20 по 23 у метро, до 5000 за ночь
 • отель в Сочи на 3 ночи с пятницы, с завтраком
@@ -162,7 +169,15 @@ function matchesTravelWords(text) {
 }
 
 function matchesBookingWords(text) {
-  return wordsOf(text).some((word) => BOOKING_WORD_PREFIXES.some((prefix) => word.startsWith(prefix)));
+  const words = wordsOf(text);
+  if (words.some((word) => BOOKING_WORD_PREFIXES.some((prefix) => word.startsWith(prefix)))) return true;
+  const hasVerb = words.some((word) => BOOKING_VERB_PREFIXES.some((prefix) => word.startsWith(prefix)));
+  if (!hasVerb || matchesTravelWords(text)) return false;
+  if (words.some((word) => BOOKING_VERB_BLOCKERS.some((prefix) => word.startsWith(prefix)))) return false;
+  return words.some(
+    (word) =>
+      BOOKING_CONTEXT_EXACT.includes(word) || BOOKING_CONTEXT_PREFIXES.some((prefix) => word.startsWith(prefix))
+  );
 }
 
 // Решает, какому Routine адресовать сообщение (или null, если ни один
