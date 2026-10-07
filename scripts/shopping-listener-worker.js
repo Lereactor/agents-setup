@@ -46,7 +46,8 @@
 // по корню "найд"). Правило одинаково
 // применяется и к тексту, и к расшифровке голосового — триггер-слово может
 // быть где угодно во фразе, не обязательно первым словом.
-const GROCERY_TRIGGER_WORDS = ['вкусвилл', 'продукт'];
+// «вкусфил», «фкусвил» — так Whisper иногда слышит «ВкусВилл» в голосовых.
+const GROCERY_TRIGGER_WORDS = ['вкусвил', 'вкусфил', 'фкусвил', 'продукт'];
 const SHOPPING_TRIGGER_WORDS = ['куп', 'заказ', 'найд', 'buy', 'order', 'find'];
 // travel матчится по НАЧАЛУ СЛОВА, а не подстрокой: корень "отел" подстрокой
 // ловит "хотел"/"хотели", "жд" — "жду"/"между". Поэтому "жд"/"ржд" — только
@@ -60,12 +61,12 @@ const BOOKING_WORD_PREFIXES = [
   'отел', 'гостиниц', 'хостел', 'апартамент', 'квартир', 'коттедж', 'шале',
   'лофт', 'глэмпинг', 'глемпинг', 'жиль', 'жилье', 'жильё', 'посуточн',
   'суточно', 'переноч', 'островок', 'букинг', 'booking', 'airbnb', 'эйрбнб',
-  'мотел', 'гестхаус', 'гостев', 'санатор', 'пансионат', 'турбаз'
+  'мотел', 'гестхаус', 'гостев', 'санатор', 'пансионат', 'турбаз', 'этел', 'отэл'
 ];
 // Многозначные глаголы («снять деньги», «забронировать билет/столик») — к жилью,
 // только если рядом есть слово про ночлег и нет слов про транспорт/столик.
 const BOOKING_VERB_PREFIXES = ['заброниров', 'заброниру', 'забронь', 'бронир', 'бронь', 'аренд', 'снять', 'сними', 'сниму', 'снимем', 'снимешь', 'снимите'];
-const BOOKING_CONTEXT_EXACT = ['дом', 'домик', 'домики', 'дача', 'дачу', 'номер', 'номера', 'номерок'];
+const BOOKING_CONTEXT_EXACT = ['дом', 'домик', 'домики', 'дача', 'дачу', 'номер', 'номера', 'номерок', 'день', 'дня', 'дней'];
 const BOOKING_CONTEXT_PREFIXES = ['комнат', 'ноч', 'сутк', 'суток', 'выходн'];
 const BOOKING_VERB_BLOCKERS = ['столик', 'билет', 'место', 'места', 'машин', 'авто', 'деньг', 'видео', 'фото'];
 const TRAVEL_EXACT_WORDS = ['жд', 'ржд'];
@@ -235,10 +236,31 @@ function sentenceTargets(sentence) {
   return targets;
 }
 
+// Внутри предложения — ещё и по запятым (голосовые обычно одной фразой через запятые):
+// «…завтрак во вкусвилле, купи мячик, посмотри билеты в Питер». Кусок без агента
+// («у метро», «до 5000») приклеивается к предыдущему; «купи молоко, хлеб во вкусвилле» —
+// перечисление ДО ВкусВилла отходит ВкусВиллу.
+function splitChunks(sentence) {
+  const parts = sentence.split(/\s*,\s*/).map((part) => part.trim()).filter(Boolean);
+  const chunks = [];
+  for (const part of parts) {
+    const targets = sentenceTargets(part);
+    const prev = chunks[chunks.length - 1];
+    if (!targets.length && prev && prev.targets.length) prev.sentence += ', ' + part;
+    else chunks.push({ sentence: part, targets });
+  }
+  const groceryAt = chunks.findIndex((chunk) => chunk.targets.includes('grocery'));
+  if (groceryAt > 0 && chunks.slice(0, groceryAt).every((chunk) => chunk.targets.join() === 'shopping')) {
+    return [{ sentence, targets: ['grocery'] }];
+  }
+  const distinct = new Set(chunks.flatMap((chunk) => chunk.targets));
+  return distinct.size > 1 ? chunks : [{ sentence, targets: sentenceTargets(sentence) }];
+}
+
 // → [{target, text, shown}]; пусто — никому; один элемент — текст целиком, как раньше.
 function planDispatch(text) {
   if (!text) return [];
-  const sentences = splitSentences(text).map((sentence) => ({ sentence, targets: sentenceTargets(sentence) }));
+  const sentences = splitSentences(text).flatMap(splitChunks);
   const firstIndex = (agent) => sentences.findIndex((item) => item.targets.includes(agent));
   const agents = AGENT_ORDER.filter((agent) => firstIndex(agent) >= 0).sort((a, b) => firstIndex(a) - firstIndex(b));
   if (agents.length <= 1) {
@@ -348,7 +370,11 @@ async function transcribeVoice(env, fileId) {
   const audio = bytesToBase64(new Uint8Array(await audioResp.arrayBuffer()));
   const result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
     audio,
-    language: 'ru'
+    language: 'ru',
+    // подсказка словаря: без неё «ВкусВилл» слышится как «вкус фил», «отель» — как «этель»
+    initial_prompt:
+      'ВкусВилл, продукты. Купи на Озоне, Wildberries, Яндекс Маркете. Билеты на поезд, самолёт. ' +
+      'Забронируй отель, квартиру, коттедж посуточно на Суточно, Островке, Авито. Москва, Питер, Казань, Сочи.'
   });
 
   return ((result && result.text) || '').trim();

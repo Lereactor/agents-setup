@@ -374,11 +374,9 @@ export default function MyAgentsView() {
           <Background gap={28} color="#1d2333" />
           <Controls showInteractive={false} position="bottom-left" />
         </ReactFlow>
-        {Object.keys(positions).length > 0 && (
-          <button className="btn ma-reset-layout" onClick={resetLayout} title="Вернуть карточки на свои места">
-            ↺ как было
-          </button>
-        )}
+        <button className="btn ma-reset-layout" onClick={resetLayout} title="Вернуть карточки на свои места и вписать схему в экран">
+          ↺ По местам
+        </button>
         <div className="ma-drag-hint dim">карточки можно двигать</div>
       </div>
 
