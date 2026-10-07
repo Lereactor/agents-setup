@@ -121,6 +121,10 @@ const HELP_TEXT = `🦁 Шпаргалка по агентам
 📰 Новости — сами, каждый день в 08:00
 🛡️ Надзиратель — фоном каждые 6 часов, отчёт в 09:00. Зациклившегося агента ставит на паузу, зависший запрос повторяет. Снять паузу — «включи поездки» (продукты, покупки, жильё).
 
+🧩 Несколько дел в одном сообщении — разберу по агентам:
+• закажи во вкусвилл завтрак на двоих. А ещё купи футбольный мяч. Завтра еду в Казань — найди отель
+• поезд и отель в Казань на выходные
+
 🎙️ Можно голосом — те же слова.
 ❓ Эта подсказка — «помощь» или «?»`;
 
@@ -188,6 +192,97 @@ function detectTarget(text) {
   if (matchesTravelWords(text)) return 'travel';
   if (matchesTriggerWords(text, SHOPPING_TRIGGER_WORDS)) return 'shopping';
   return null;
+}
+
+// Одно сообщение — несколько агентов: «закажи во вкусвилл завтрак. А ещё купи мяч.
+// Завтра еду в Казань, найди отель». Режем на предложения (и по «а ещё», «а также»),
+// у каждого предложения — свои агенты; предложения без агента — контекст (место, даты)
+// для следующих, а хвостовые — для последнего агента; плюс всё сообщение как контекст
+// (место и даты часто в чужой части). Один агент → как раньше.
+const AGENT_SCOPE = {
+  grocery: 'продукты во ВкусВилле',
+  travel: 'билеты на поезд, самолёт, автобус, электричку',
+  booking: 'жильё (отели, квартиры, дома)',
+  shopping: 'товары на маркетплейсах'
+};
+const AGENT_ORDER = ['grocery', 'booking', 'travel', 'shopping'];
+
+function splitSentences(text) {
+  return text
+    .split(/(?<=[.!?;…])\s+|\n+/)
+    .flatMap((part) => part.split(/\s*,?\s+(?:а|и)\s+ещ[её]\s+|\s*,?\s+а\s+также\s+|\s*,?\s+кроме\s+того,?\s+/i))
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function sentenceTargets(sentence) {
+  if (matchesTriggerWords(sentence, GROCERY_TRIGGER_WORDS)) return ['grocery'];
+  const targets = [];
+  if (matchesBookingWords(sentence)) targets.push('booking');
+  if (matchesTravelWords(sentence)) targets.push('travel');
+  if (!targets.length) {
+    if (matchesTriggerWords(sentence, SHOPPING_TRIGGER_WORDS)) targets.push('shopping');
+    return targets;
+  }
+  // «купи мяч и найди отель» — глагол покупки в своей части фразы, без жилья/транспорта.
+  const shoppingClause = sentence
+    .split(/\s*,\s*|\s+и\s+/)
+    .some(
+      (clause) =>
+        matchesTriggerWords(clause, SHOPPING_TRIGGER_WORDS) && !matchesBookingWords(clause) && !matchesTravelWords(clause)
+    );
+  if (shoppingClause) targets.push('shopping');
+  return targets;
+}
+
+// → [{target, text, shown}]; пусто — никому; один элемент — текст целиком, как раньше.
+function planDispatch(text) {
+  if (!text) return [];
+  const sentences = splitSentences(text).map((sentence) => ({ sentence, targets: sentenceTargets(sentence) }));
+  const firstIndex = (agent) => sentences.findIndex((item) => item.targets.includes(agent));
+  const agents = AGENT_ORDER.filter((agent) => firstIndex(agent) >= 0).sort((a, b) => firstIndex(a) - firstIndex(b));
+  if (agents.length <= 1) {
+    const target = detectTarget(text);
+    return target ? [{ target, text, shown: text }] : [];
+  }
+  const lastTargeted = sentences.map((item) => item.targets.length > 0).lastIndexOf(true);
+  return agents.map((agent) => {
+    const lastOwn = sentences.map((item) => item.targets.includes(agent)).lastIndexOf(true);
+    const keep = sentences.filter(
+      (item, i) =>
+        item.targets.includes(agent) ||
+        (!item.targets.length && (i < lastOwn || (i > lastTargeted && sentences[lastTargeted].targets.includes(agent))))
+    );
+    const others = agents.filter((other) => other !== agent).map((other) => AGENT_SCOPE[other]);
+    const note =
+      `\n\n(Сообщение разобрано на несколько агентов. Ты отвечаешь только за: ${AGENT_SCOPE[agent]}. ` +
+      `${others.join('; ')} — делают другие агенты, это не ищи. ` +
+      `Всё сообщение — только для контекста (место, даты, сколько людей): «${text}»)`;
+    return {
+      target: agent,
+      text: keep.map((item) => item.sentence).join(' ') + note,
+      shown: keep.filter((item) => item.targets.includes(agent)).map((item) => item.sentence).join(' ')
+    };
+  });
+}
+
+function planAck(plan) {
+  if (plan.length === 1) return `✅ Взял в работу: ${AGENT_LABELS[plan[0].target]}`;
+  return (
+    `✅ Разобрал на ${plan.length} задачи:\n` +
+    plan.map((item) => `${AGENT_LABELS[item.target]} — «${item.shown.replace(/[.!?;…]+$/, '')}»`).join('\n')
+  );
+}
+
+// Запуск по плану: одно общее «Принял», затем агенты параллельно (пауза — у каждого своя).
+async function dispatchPlan(env, plan, baseParams, ackPrefix = '') {
+  await sendTelegramMessage(env, {
+    chatId: baseParams.chat_id,
+    text: ackPrefix + planAck(plan),
+    replyToMessageId: baseParams.message_id,
+    businessConnectionId: baseParams.business_connection_id
+  });
+  return Promise.all(plan.map((item) => dispatch(env, item.target, { ...baseParams, text: item.text }, null)));
 }
 
 function largestPhotoFileId(photoArray) {
@@ -317,7 +412,7 @@ async function dispatch(env, target, params, ackText, recordExtra = {}) {
     return { paused: true };
   }
 
-  await reply(ackText);
+  if (ackText) await reply(ackText);
   const fireResult = await triggerRoutine(env, target, params);
   if (env.UPDATE_CACHE && fireResult.status === 200) {
     const at = Date.now();
@@ -406,8 +501,8 @@ async function processVoiceMessage(env, message, update, candidate) {
     return { ok: true, help: true, transcript };
   }
 
-  const target = detectTarget(transcript);
-  if (!target) {
+  const plan = planDispatch(transcript);
+  if (!plan.length) {
     await notify(
       `🎙️ Понял: "${transcript}" — но не понял, кому это адресовано ` +
         '(скажи "вкусвилл", "билет"/"поезд"/"самолёт", "отель"/"квартира"/"коттедж" или "купи"/"закажи"/"найди").'
@@ -422,8 +517,16 @@ async function processVoiceMessage(env, message, update, candidate) {
     text: transcript,
     photo_file_id: ''
   };
-  const fireResult = await dispatch(env, target, params, `🎙️ Понял: "${transcript}"\n✅ Взял в работу: ${AGENT_LABELS[target]}`);
-  return { ok: true, triggered: true, target, transcript, fire_status: fireResult.status, fire_body: fireResult.body };
+  const results = await dispatchPlan(env, plan, params, `🎙️ Понял: "${transcript}"\n`);
+  return {
+    ok: true,
+    triggered: true,
+    target: plan[0].target,
+    targets: plan.map((item) => item.target),
+    transcript,
+    fire_status: results[0].status,
+    fire_body: results[0].body
+  };
 }
 
 export default {
@@ -523,10 +626,12 @@ export default {
       return json({ ok: true, resumed: resumeAgent });
     }
 
-    const target = detectTarget(candidate.text);
-    if (!target) {
+    const plan = planDispatch(candidate.text);
+    if (!plan.length) {
       return json({ ok: true, skipped: 'no trigger word' });
     }
+    const target = plan[0].target;
+    const targets = plan.map((item) => item.target);
 
     const params = {
       chat_id: message.chat.id,
@@ -536,15 +641,13 @@ export default {
       photo_file_id: candidate.photoFileId
     };
 
-    const ackText = `✅ Взял в работу: ${AGENT_LABELS[target]}`;
-
     // Диагностический режим (?debug=1): дожидаемся ответа fire и возвращаем
     // его в теле — удобно для ручной проверки через curl. В обычной работе
     // (реальные апдейты от Telegram) этот параметр не передаётся, и
     // используется быстрый путь ниже.
     if (isDebug) {
-      const fireResult = await dispatch(env, target, params, ackText);
-      return json({ ok: true, triggered: !fireResult.paused, target, ...fireResult });
+      const results = await dispatchPlan(env, plan, params);
+      return json({ ok: true, triggered: !results[0].paused, target, targets, ...results[0], results });
     }
 
     // Отвечаем Telegram сразу (200), а сам ack + fire-вызов (может занимать
@@ -554,10 +657,10 @@ export default {
     // пришёл раньше ответа агента, а не вперемешку с ним.
     ctx.waitUntil(
       (async () => {
-        await dispatch(env, target, params, ackText);
+        await dispatchPlan(env, plan, params);
       })()
     );
 
-    return json({ ok: true, triggered: true, target });
+    return json({ ok: true, triggered: true, target, targets });
   }
 };
