@@ -17,7 +17,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     emoji: '🛒',
     color: '#3d8bff',
     trigger: 'по сообщению: «купи», «найди», «закажи»',
-    description: 'Ищет лучшую цену и отзывы на Ozon и Яндекс.Маркете',
+    description: 'Топ-5 по цене, рейтингу и отзывам на Ozon, WB и Я.Маркете',
   },
   grocery: {
     id: 'grocery',

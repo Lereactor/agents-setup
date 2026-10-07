@@ -491,6 +491,24 @@ seller-side MCP для управления ценами (не для покуп
   вживую — `/admin/status` с ключом/без (200/403), пауза travel → «поезд в
   Питер» получил «на паузе» без запуска агента → «включи поездки» снял паузу.
 
+## 6.11 Покупки через Apify (Ozon, WB, Я.Маркет)
+
+Подробности — в конце `docs/plans/2026-08-20-shopping-agent-design.md`.
+1. Регистрация на apify.com (бесплатный план, $5 кредита в месяц).
+2. console.apify.com → **Settings** → **API & Integrations** → скопировать
+   Default token → в `cf_api.txt` строкой `APIFY_TOKEN=...`.
+3. Промпт Routine `Shopping` обновлён через `RemoteTrigger update` (токен
+   подставлен в шаг 3 живого промпта).
+4. Проверка: «найди робот-пылесос Dreame L10s» в группе → «✅ Взял в работу:
+   🛒 Покупки (Ozon, WB, Я.Маркет)» → через 2–3 мин топ-5 с рейтингами.
+5. Если кончится бесплатный кредит Apify — запросы начнут падать с ошибкой
+   оплаты; агент ответит «площадка не ответила». Расход смотреть в
+   console.apify.com → **Billing**.
+
+Пробный self-hosted `ru-marketplace-mcp` на VPS 193.233.84.69 откатан;
+на VPS оставлено только усиление защиты (ufw, fail2ban, SSH только по ключу,
+откат — `/root/security-rollback.sh`).
+
 ## 7. AI Agent Live Visualization (отдельная локальная демка, не Telegram)
 
 Полный дизайн — `docs/plans/2026-08-26-ai-agent-visualization-design.md`,
