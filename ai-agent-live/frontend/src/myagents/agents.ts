@@ -32,8 +32,16 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     title: 'Поездки',
     emoji: '🚆',
     color: '#26c6da',
-    trigger: 'по сообщению: «билет», «поезд», «самолёт», «отель»',
-    description: 'Ищет поезда, рейсы и отели на Туту, даёт ссылку на покупку',
+    trigger: 'по сообщению: «билет», «поезд», «самолёт»',
+    description: 'Ищет поезда, рейсы и автобусы на Туту, даёт ссылку на покупку',
+  },
+  booking: {
+    id: 'booking',
+    title: 'Жильё',
+    emoji: '🏡',
+    color: '#ff8a65',
+    trigger: 'по сообщению: «отель», «квартира», «коттедж», «посуточно»',
+    description: 'Топ-3 на Суточно, Островке, Авито и Туту + риски и рекомендация',
   },
   'news-digest': {
     id: 'news-digest',
@@ -53,7 +61,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
   },
 }
 
-export const AGENT_ORDER: AgentId[] = ['shopping', 'grocery', 'travel', 'news-digest', 'watchdog']
+export const AGENT_ORDER: AgentId[] = ['shopping', 'grocery', 'travel', 'booking', 'news-digest', 'watchdog']
 
 export function isAgentId(value: string): value is AgentId {
   return value in AGENTS

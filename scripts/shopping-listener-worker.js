@@ -1,5 +1,5 @@
 // Cloudflare Worker — общий слушатель Telegram-вебхука для событийных агентов
-// (shopping: Ozon/Я.Маркет, grocery: ВкусВилл, travel: Туту). Файл не переименован в
+// (shopping: Ozon/WB/Я.Маркет, grocery: ВкусВилл, travel: Туту, booking: жильё). Файл не переименован в
 // мульти-агентный, чтобы не трогать уже настроенный Telegram-вебхук.
 // Заменяет scripts/shopping-listener.gs: Google Apps Script Web App всегда
 // отвечает на POST через 302-редирект на script.googleusercontent.com, а
@@ -20,6 +20,8 @@
 //   ROUTINE_TRIGGER_TOKEN_GROCERY  — Bearer-токен для этого эндпоинта
 //   ROUTINE_TRIGGER_URL_TRAVEL     — URL fire-эндпоинта Routine "Travel" (Туту)
 //   ROUTINE_TRIGGER_TOKEN_TRAVEL   — Bearer-токен для этого эндпоинта
+//   ROUTINE_TRIGGER_URL_BOOKING    — URL fire-эндпоинта Routine "Booking" (жильё)
+//   ROUTINE_TRIGGER_TOKEN_BOOKING  — Bearer-токен для этого эндпоинта
 //   TELEGRAM_BOT_TOKEN             — токен @LAgentsControl_bot (для голосовых:
 //                                    скачать файл + отправить ack/ошибку в чат)
 //   WATCHDOG_ADMIN_TOKEN           — ключ надзирателя для /admin/* (пауза агента,
@@ -39,7 +41,7 @@
 //     -d "url=<URL воркера>" \
 //     -d 'allowed_updates=["message","business_message"]'
 
-// Порядок важен: grocery → travel → shopping. "вкусвилл, купи молоко" уходит
+// Порядок важен: grocery → booking → travel → shopping. "вкусвилл, купи молоко" уходит
 // только в grocery, "найди билет на поезд" — только в travel (а не в shopping
 // по корню "найд"). Правило одинаково
 // применяется и к тексту, и к расшифровке голосового — триггер-слово может
@@ -51,7 +53,13 @@ const SHOPPING_TRIGGER_WORDS = ['куп', 'заказ', 'найд', 'buy', 'orde
 // целым словом (TRAVEL_EXACT_WORDS).
 const TRAVEL_WORD_PREFIXES = [
   'билет', 'поезд', 'электричк', 'самолет', 'самолёт', 'авиа', 'рейс',
-  'перелет', 'перелёт', 'отел', 'гостиниц', 'хостел', 'автобус', 'туту'
+  'перелет', 'перелёт', 'автобус', 'туту'
+];
+// Жильё — тоже по началу слова («отел» подстрокой ловит «хотели»).
+const BOOKING_WORD_PREFIXES = [
+  'отел', 'гостиниц', 'хостел', 'апартамент', 'квартир', 'коттедж', 'шале',
+  'лофт', 'глэмпинг', 'глемпинг', 'жиль', 'жилье', 'жильё', 'посуточн',
+  'суточно', 'переноч', 'островок'
 ];
 const TRAVEL_EXACT_WORDS = ['жд', 'ржд'];
 
@@ -59,12 +67,14 @@ const TRAVEL_EXACT_WORDS = ['жд', 'ржд'];
 const AGENT_LABELS = {
   grocery: '🥕 Продукты (ВкусВилл)',
   travel: '🚆 Поездки (Туту)',
+  booking: '🏡 Жильё (Суточно, Островок, Авито, Туту)',
   shopping: '🛒 Покупки (Ozon, WB, Я.Маркет)'
 };
 // «включи поездки» — снять паузу, которую поставил надзиратель.
 const AGENT_NAMES = {
   grocery: ['продукты', 'вкусвилл', 'grocery'],
   travel: ['поездки', 'туту', 'travel'],
+  booking: ['жильё', 'жилье', 'booking'],
   shopping: ['покупки', 'shopping']
 };
 // Запуски храним 2 суток — надзирателю этого хватает, чтобы найти и повторить зависший.
@@ -82,12 +92,17 @@ const HELP_TEXT = `🦁 Шпаргалка по агентам
 • собери продукты на борщ
 • вкусвилл, что со скидкой из сыров
 
-🚆 Поездки (Туту) — «билет», «поезд», «самолёт», «электричка», «автобус», «отель»
+🚆 Поездки (Туту) — «билет», «поезд», «самолёт», «электричка», «автобус»
 • поезд в Питер на субботу
 • билет Москва — Казань 15 октября туда-обратно на двоих
 • самолёт в Сочи на выходные, с багажом
-• отель в Казани с 20 по 22
 Не написал откуда, когда или сколько — считаю: из Москвы, завтра, 1 взрослый (и пишу это в ответе).
+
+🏡 Жильё (Суточно, Островок, Авито, Туту) — «отель», «квартира», «коттедж», «шале», «лофт», «жильё», «посуточно»
+• коттедж под Казанью на выходные на 6 человек, с баней
+• квартира в Питере с 20 по 23 у метро, до 5000 за ночь
+• отель в Сочи на 3 ночи с пятницы, с завтраком
+Не написал даты или сколько гостей — считаю: ближайшие выходные, 2 гостя (и пишу это в ответе).
 
 🛒 Покупки (Ozon, WB, Я.Маркет) — «купи», «найди», «закажи»
 • найди наушники Sony WH-1000XM5
@@ -97,7 +112,7 @@ const HELP_TEXT = `🦁 Шпаргалка по агентам
 Ответ: топ-5 с ценами, рейтингом и отзывами по трём площадкам + совет, что взять (1–3 мин).
 
 📰 Новости — сами, каждый день в 08:00
-🛡️ Надзиратель — фоном каждые 6 часов, отчёт в 09:00. Зациклившегося агента ставит на паузу, зависший запрос повторяет. Снять паузу — «включи поездки» (продукты, покупки).
+🛡️ Надзиратель — фоном каждые 6 часов, отчёт в 09:00. Зациклившегося агента ставит на паузу, зависший запрос повторяет. Снять паузу — «включи поездки» (продукты, покупки, жильё).
 
 🎙️ Можно голосом — те же слова.
 ❓ Эта подсказка — «помощь» или «?»`;
@@ -135,19 +150,26 @@ function matchesTriggerWords(text, roots) {
   return roots.some((root) => normalized.includes(root));
 }
 
+function wordsOf(text) {
+  return (text || '').toLowerCase().split(/[^a-zа-яё0-9]+/).filter(Boolean);
+}
+
 function matchesTravelWords(text) {
-  if (!text) return false;
-  const words = text.toLowerCase().split(/[^a-zа-яё0-9]+/).filter(Boolean);
-  return words.some(
+  return wordsOf(text).some(
     (word) =>
       TRAVEL_EXACT_WORDS.includes(word) || TRAVEL_WORD_PREFIXES.some((prefix) => word.startsWith(prefix))
   );
+}
+
+function matchesBookingWords(text) {
+  return wordsOf(text).some((word) => BOOKING_WORD_PREFIXES.some((prefix) => word.startsWith(prefix)));
 }
 
 // Решает, какому Routine адресовать сообщение (или null, если ни один
 // набор триггер-слов не совпал).
 function detectTarget(text) {
   if (matchesTriggerWords(text, GROCERY_TRIGGER_WORDS)) return 'grocery';
+  if (matchesBookingWords(text)) return 'booking';
   if (matchesTravelWords(text)) return 'travel';
   if (matchesTriggerWords(text, SHOPPING_TRIGGER_WORDS)) return 'shopping';
   return null;
@@ -237,6 +259,7 @@ async function triggerRoutine(env, target, params) {
   const endpoints = {
     grocery: [env.ROUTINE_TRIGGER_URL_GROCERY, env.ROUTINE_TRIGGER_TOKEN_GROCERY],
     travel: [env.ROUTINE_TRIGGER_URL_TRAVEL, env.ROUTINE_TRIGGER_TOKEN_TRAVEL],
+    booking: [env.ROUTINE_TRIGGER_URL_BOOKING, env.ROUTINE_TRIGGER_TOKEN_BOOKING],
     shopping: [env.ROUTINE_TRIGGER_URL, env.ROUTINE_TRIGGER_TOKEN]
   };
   const [url, token] = endpoints[target];
@@ -372,7 +395,7 @@ async function processVoiceMessage(env, message, update, candidate) {
   if (!target) {
     await notify(
       `🎙️ Понял: "${transcript}" — но не понял, кому это адресовано ` +
-        '(скажи "вкусвилл", "билет"/"поезд"/"самолёт"/"отель" или "купи"/"закажи"/"найди").'
+        '(скажи "вкусвилл", "билет"/"поезд"/"самолёт", "отель"/"квартира"/"коттедж" или "купи"/"закажи"/"найди").'
     );
     return { ok: true, skipped: 'no trigger word in transcript', transcript };
   }

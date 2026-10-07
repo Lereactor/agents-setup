@@ -4,6 +4,7 @@ import { AGENTS, STATUS_LABEL } from './agents'
 import GroceryArt from './art/GroceryArt'
 import NewsArt from './art/NewsArt'
 import ShoppingArt from './art/ShoppingArt'
+import BookingArt from './art/BookingArt'
 import TravelArt from './art/TravelArt'
 import WatchdogArt from './art/WatchdogArt'
 import ReplyBubble from './ReplyBubble'
@@ -28,6 +29,7 @@ const ART: Record<AgentId, (p: { active: boolean }) => JSX.Element> = {
   shopping: ShoppingArt,
   grocery: GroceryArt,
   travel: TravelArt,
+  booking: BookingArt,
   'news-digest': NewsArt,
   watchdog: WatchdogArt,
 }

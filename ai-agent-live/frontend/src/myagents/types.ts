@@ -1,6 +1,6 @@
 /** Зеркало ответа backend GET /my-agents/log (backend/app/my_agents/log_parser.py). */
 
-export type AgentId = 'news-digest' | 'watchdog' | 'shopping' | 'grocery' | 'travel'
+export type AgentId = 'news-digest' | 'watchdog' | 'shopping' | 'grocery' | 'travel' | 'booking'
 
 export type RunStatus = 'running' | 'stale' | 'success' | 'error' | 'skipped'
 

@@ -509,6 +509,43 @@ seller-side MCP для управления ценами (не для покуп
 на VPS оставлено только усиление защиты (ufw, fail2ban, SSH только по ключу,
 откат — `/root/security-rollback.sh`).
 
+## 6.12 Агент «booking» — жильё (Суточно, Островок, Авито, Туту)
+
+Дизайн — `docs/plans/2026-10-07-booking-agent-design.md`, промпт —
+`routine-prompts/6-booking.txt` (в .gitignore; токены заглушками
+`__APIFY_TOKEN__`, `__SUTOCHNO_TOKEN__`). Пишешь «коттедж под Казанью на
+выходные на 6 человек» — получаешь топ-3 по каждой площадке, затем
+💬 комментарии с рисками и 💡 рекомендацию. Не указал даты/гостей — агент
+берёт ближайшие выходные (пт→вс) и 2 гостей и пишет это в ответе.
+
+1. **Источники** (MCP у Суточно и Островка нет):
+   - Суточно — внутренний API сайта `sutochno.ru/api` с публичным токеном
+     веб-приложения (заголовки `api-version: 2.1`, `platform: js`, `token`);
+     из облака Anthropic работает (проверено 2026-10-07);
+   - Островок — Apify `getascraper~ostrovok-hotels-scraper` (только отели);
+   - Авито посуточно — Apify `zen-studio~avito-realty-scraper`;
+   - Туту — коннектор `Tutu` (`search_hotels`), только отели.
+   Все запросы идут параллельно одним скриптом, ~10–40 с.
+2. **Routine `Booking`** — создан через `RemoteTrigger create`, id
+   `trig_01PvQYUmtVhkU2B2WKtaMQxL`, с `mcp_connections` = Tutu и
+   `permitted_tools` (search_hotels, get_hotels_instructions,
+   get_offer_details, create_checkout_link, fetch_resource).
+3. **API-токен для запуска** — только в UI: claude.ai/code/routines →
+   **Booking** → в блоке триггеров **Add trigger** → **API** → скопировать
+   токен (показывается один раз) → в `cf_api.txt` строкой
+   `BOOKING_FIRE_TOKEN=...`.
+4. **Воркер**: маршрутизация grocery → booking → travel → shopping (жильё по
+   началу слова: отел, гостиниц, квартир, коттедж, шале, лофт, жиль,
+   посуточн…; «поезд и отель в Казань» уходит к жилью). Секреты
+   `ROUTINE_TRIGGER_URL_BOOKING`, `ROUTINE_TRIGGER_TOKEN_BOOKING`. Раздел
+   «🏡 Жильё» в шпаргалке «помощь»/«?», пауза — «включи жильё».
+5. **Надзиратель**: booking добавлен в агенты «по событию» (живой промпт
+   Guard и `routine-prompts/2-watchdog.txt`).
+6. **Сайт**: карточка «Жильё» (домик с дымом из трубы; при работе горят окна и
+   выпрыгивает ключ), рёбра от слушателя и надзирателя.
+7. **Проверка**: прямой запуск роутины «коттедж под Казанью на выходные на 6
+   человек» → ответ в группе за 74 с (Суточно 30, Авито 12 вариантов).
+
 ## 7. AI Agent Live Visualization (отдельная локальная демка, не Telegram)
 
 Полный дизайн — `docs/plans/2026-08-26-ai-agent-visualization-design.md`,

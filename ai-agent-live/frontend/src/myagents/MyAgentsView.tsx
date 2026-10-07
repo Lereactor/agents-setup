@@ -35,6 +35,7 @@ const SOURCES_OF: Record<AgentId, string[]> = {
   shopping: ['telegram', 'worker'],
   grocery: ['telegram', 'worker'],
   travel: ['telegram', 'worker'],
+  booking: ['telegram', 'worker'],
   'news-digest': ['cron-news'],
   watchdog: ['cron-watch'],
 }
