@@ -4,6 +4,7 @@ import { AGENTS, STATUS_LABEL } from './agents'
 import GroceryArt from './art/GroceryArt'
 import NewsArt from './art/NewsArt'
 import ShoppingArt from './art/ShoppingArt'
+import TravelArt from './art/TravelArt'
 import WatchdogArt from './art/WatchdogArt'
 import ReplyBubble from './ReplyBubble'
 import { formatAgo, formatDuration } from './stats'
@@ -26,6 +27,7 @@ export interface AgentCardData {
 const ART: Record<AgentId, (p: { active: boolean }) => JSX.Element> = {
   shopping: ShoppingArt,
   grocery: GroceryArt,
+  travel: TravelArt,
   'news-digest': NewsArt,
   watchdog: WatchdogArt,
 }

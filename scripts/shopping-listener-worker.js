@@ -1,5 +1,5 @@
-// Cloudflare Worker — общий слушатель Telegram-вебхука для агентов-покупок
-// (shopping: Ozon/Я.Маркет, grocery: ВкусВилл). Файл не переименован в
+// Cloudflare Worker — общий слушатель Telegram-вебхука для событийных агентов
+// (shopping: Ozon/Я.Маркет, grocery: ВкусВилл, travel: Туту). Файл не переименован в
 // мульти-агентный, чтобы не трогать уже настроенный Telegram-вебхук.
 // Заменяет scripts/shopping-listener.gs: Google Apps Script Web App всегда
 // отвечает на POST через 302-редирект на script.googleusercontent.com, а
@@ -18,6 +18,8 @@
 //   ROUTINE_TRIGGER_TOKEN          — Bearer-токен для этого эндпоинта
 //   ROUTINE_TRIGGER_URL_GROCERY    — URL fire-эндпоинта Routine "grocery" (ВкусВилл)
 //   ROUTINE_TRIGGER_TOKEN_GROCERY  — Bearer-токен для этого эндпоинта
+//   ROUTINE_TRIGGER_URL_TRAVEL     — URL fire-эндпоинта Routine "Travel" (Туту)
+//   ROUTINE_TRIGGER_TOKEN_TRAVEL   — Bearer-токен для этого эндпоинта
 //   TELEGRAM_BOT_TOKEN             — токен @LAgentsControl_bot (для голосовых:
 //                                    скачать файл + отправить ack/ошибку в чат)
 //
@@ -35,14 +37,58 @@
 //     -d "url=<URL воркера>" \
 //     -d 'allowed_updates=["message","business_message"]'
 
-// Порядок важен: grocery проверяется первым, чтобы "вкусвилл, купи молоко"
-// уходило только в grocery, а не в оба агента разом. Правило одинаково
+// Порядок важен: grocery → travel → shopping. "вкусвилл, купи молоко" уходит
+// только в grocery, "найди билет на поезд" — только в travel (а не в shopping
+// по корню "найд"). Правило одинаково
 // применяется и к тексту, и к расшифровке голосового — триггер-слово может
 // быть где угодно во фразе, не обязательно первым словом.
 const GROCERY_TRIGGER_WORDS = ['вкусвилл', 'продукт'];
 const SHOPPING_TRIGGER_WORDS = ['куп', 'заказ', 'найд', 'buy', 'order', 'find'];
+// travel матчится по НАЧАЛУ СЛОВА, а не подстрокой: корень "отел" подстрокой
+// ловит "хотел"/"хотели", "жд" — "жду"/"между". Поэтому "жд"/"ржд" — только
+// целым словом (TRAVEL_EXACT_WORDS).
+const TRAVEL_WORD_PREFIXES = [
+  'билет', 'поезд', 'электричк', 'самолет', 'самолёт', 'авиа', 'рейс',
+  'перелет', 'перелёт', 'отел', 'гостиниц', 'хостел', 'автобус', 'туту'
+];
+const TRAVEL_EXACT_WORDS = ['жд', 'ржд'];
 
-const TARGET_LABELS = { grocery: 'ВкусВиллу', shopping: 'Shopping-агенту' };
+const TARGET_LABELS = { grocery: 'ВкусВиллу', travel: 'агенту поездок', shopping: 'Shopping-агенту' };
+
+// «помощь» / «?» — сразу отвечаем шпаргалкой, без запуска агентов. Только если
+// сообщение целиком состоит из такого слова (иначе «помощь с билетом в Казань»
+// ушло бы сюда, а не агенту поездок).
+const HELP_WORDS = ['?', 'помощь', 'помоги', 'help', '/help', '/start', 'шпаргалка', 'что умеешь', 'что ты умеешь'];
+
+const HELP_TEXT = `🦁 Шпаргалка по агентам
+
+🥕 Продукты (ВкусВилл) — слова «вкусвилл», «продукты»
+• вкусвилл, молоко и хлеб
+• собери продукты на борщ
+• вкусвилл, что со скидкой из сыров
+
+🚆 Поездки (Туту) — «билет», «поезд», «самолёт», «электричка», «автобус», «отель»
+• поезд в Питер на субботу
+• билет Москва — Казань 15 октября туда-обратно на двоих
+• самолёт в Сочи на выходные, с багажом
+• отель в Казани с 20 по 22
+Не написал откуда, когда или сколько — считаю: из Москвы, завтра, 1 взрослый (и пишу это в ответе).
+
+🛒 Покупки (Ozon, Я.Маркет) — «купи», «найди», «закажи»
+• найди наушники до 10 000
+• фото товара с подписью «купи такое»
+
+📰 Новости — сами, каждый день в 08:00
+🛡️ Надзиратель — проверяет всех агентов в 09:00
+
+🎙️ Можно голосом — те же слова.
+❓ Эта подсказка — «помощь» или «?»`;
+
+function isHelpRequest(text) {
+  if (!text) return false;
+  const t = text.trim().toLowerCase().replace(/@\w+$/, '');
+  return HELP_WORDS.includes(t) || HELP_WORDS.includes(t.replace(/[?!.,…\s]+$/u, ''));
+}
 
 function json(obj) {
   return new Response(JSON.stringify(obj), {
@@ -65,10 +111,20 @@ function matchesTriggerWords(text, roots) {
   return roots.some((root) => normalized.includes(root));
 }
 
+function matchesTravelWords(text) {
+  if (!text) return false;
+  const words = text.toLowerCase().split(/[^a-zа-яё0-9]+/).filter(Boolean);
+  return words.some(
+    (word) =>
+      TRAVEL_EXACT_WORDS.includes(word) || TRAVEL_WORD_PREFIXES.some((prefix) => word.startsWith(prefix))
+  );
+}
+
 // Решает, какому Routine адресовать сообщение (или null, если ни один
 // набор триггер-слов не совпал).
 function detectTarget(text) {
   if (matchesTriggerWords(text, GROCERY_TRIGGER_WORDS)) return 'grocery';
+  if (matchesTravelWords(text)) return 'travel';
   if (matchesTriggerWords(text, SHOPPING_TRIGGER_WORDS)) return 'shopping';
   return null;
 }
@@ -154,8 +210,12 @@ async function sendTelegramMessage(env, { chatId, text, replyToMessageId, busine
 }
 
 async function triggerRoutine(env, target, params) {
-  const url = target === 'grocery' ? env.ROUTINE_TRIGGER_URL_GROCERY : env.ROUTINE_TRIGGER_URL;
-  const token = target === 'grocery' ? env.ROUTINE_TRIGGER_TOKEN_GROCERY : env.ROUTINE_TRIGGER_TOKEN;
+  const endpoints = {
+    grocery: [env.ROUTINE_TRIGGER_URL_GROCERY, env.ROUTINE_TRIGGER_TOKEN_GROCERY],
+    travel: [env.ROUTINE_TRIGGER_URL_TRAVEL, env.ROUTINE_TRIGGER_TOKEN_TRAVEL],
+    shopping: [env.ROUTINE_TRIGGER_URL, env.ROUTINE_TRIGGER_TOKEN]
+  };
+  const [url, token] = endpoints[target];
   const resp = await fetch(url, {
     method: 'POST',
     headers: {
@@ -192,11 +252,16 @@ async function processVoiceMessage(env, message, update, candidate) {
     return { ok: true, skipped: 'empty transcript' };
   }
 
+  if (isHelpRequest(transcript)) {
+    await notify(HELP_TEXT);
+    return { ok: true, help: true, transcript };
+  }
+
   const target = detectTarget(transcript);
   if (!target) {
     await notify(
       `🎙️ Понял: "${transcript}" — но не понял, кому это адресовано ` +
-        '(скажи "вкусвилл" или "купи"/"закажи"/"найди").'
+        '(скажи "вкусвилл", "билет"/"поезд"/"самолёт"/"отель" или "купи"/"закажи"/"найди").'
     );
     return { ok: true, skipped: 'no trigger word in transcript', transcript };
   }
@@ -267,6 +332,18 @@ export default {
       }
       ctx.waitUntil(processVoiceMessage(env, message, update, candidate));
       return json({ ok: true, processing: 'voice' });
+    }
+
+    if (isHelpRequest(candidate.text)) {
+      const sendHelp = sendTelegramMessage(env, {
+        chatId: message.chat.id,
+        text: HELP_TEXT,
+        replyToMessageId: message.message_id,
+        businessConnectionId: update.business_message ? (message.business_connection_id || '') : ''
+      });
+      if (isDebug) await sendHelp;
+      else ctx.waitUntil(sendHelp);
+      return json({ ok: true, help: true });
     }
 
     const target = detectTarget(candidate.text);

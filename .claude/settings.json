@@ -2,6 +2,7 @@
   "permissions": {
     "allow": [
       "mcp__vkusvill__*",
+      "mcp__claude_ai_Tutu__create_checkout_link",
       "Bash(git commit *)",
       "Bash(git push *)"
     ]

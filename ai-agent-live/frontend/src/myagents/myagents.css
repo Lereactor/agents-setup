@@ -443,6 +443,40 @@
   animation: basket-catch 0.5s ease-out infinite;
 }
 
+/* travel */
+.trav-cloud {
+  animation: cloud-drift 14s linear infinite;
+}
+.trav-cloud--2 {
+  animation-duration: 19s;
+  animation-delay: -7s;
+}
+.trav-train {
+  animation: bob 2.6s ease-in-out infinite;
+}
+.trav-sleepers {
+  animation: rails-run 1.6s linear infinite;
+}
+.trav-plane {
+  opacity: 0;
+}
+.trav-ticket {
+  opacity: 0;
+  transform-origin: 50% 50%;
+}
+.art--active .trav-train {
+  animation: train-rattle 0.35s ease-in-out infinite;
+}
+.art--active .trav-sleepers {
+  animation-duration: 0.35s;
+}
+.art--active .trav-plane {
+  animation: plane-fly 2.4s ease-in-out infinite;
+}
+.art--active .trav-ticket {
+  animation: tag-pop-up 1.8s ease-out 0.4s infinite;
+}
+
 /* news */
 .news-sun {
   transform-origin: 50% 50%;
@@ -763,6 +797,43 @@
 @keyframes badge-pulse {
   50% {
     opacity: 0.45;
+  }
+}
+@keyframes cloud-drift {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-14px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+@keyframes rails-run {
+  to {
+    stroke-dashoffset: 12;
+  }
+}
+@keyframes train-rattle {
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes plane-fly {
+  0% {
+    opacity: 0;
+    transform: translate(-170px, 18px);
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(70px, -14px);
   }
 }
 @keyframes bob {
@@ -1279,7 +1350,7 @@
     white-space: normal;
   }
   .ma-canvas {
-    height: 112vw; /* сетка 2×2 карточек — высота по ширине экрана */
+    height: 160vw; /* сетка карточек в 2 колонки × 3 ряда — высота по ширине экрана */
     min-height: 0;
     max-height: 80vh;
   }

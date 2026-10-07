@@ -34,6 +34,7 @@ type Flash = { status: RunStatus; key: number }
 const SOURCES_OF: Record<AgentId, string[]> = {
   shopping: ['telegram', 'worker'],
   grocery: ['telegram', 'worker'],
+  travel: ['telegram', 'worker'],
   'news-digest': ['cron-news'],
   watchdog: ['cron-watch'],
 }

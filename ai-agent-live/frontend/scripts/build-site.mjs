@@ -2,6 +2,8 @@
 //
 //   SITE_PASSWORD=... node scripts/build-site.mjs            — собрать в dist-site/
 //   SITE_PASSWORD=... node scripts/build-site.mjs --deploy   — собрать и выложить
+//   node scripts/build-site.mjs --deploy                     — без пароля: только новый код сайта,
+//                                                              config.enc.json берётся уже опубликованный
 //
 // Адрес лога и ключ ТОЛЬКО ДЛЯ ЧТЕНИЯ берутся из sheets_api.txt в корне репозитория
 // (SHEETS_SITE_URL, SHEETS_SITE_READ_TOKEN — не в git) и шифруются паролем:
@@ -60,9 +62,19 @@ async function encrypt(config, password) {
   return { v: 1, iter: ITERATIONS, salt: b64(salt), iv: b64(iv), ct: b64(ct) }
 }
 
+// Без пароля шифротекст не пересобираем, а берём опубликованный: пароль и ключ
+// остаются прежними, обновляется только код сайта.
 const password = process.env.SITE_PASSWORD
-if (!password) throw new Error('Задайте пароль сайта в переменной SITE_PASSWORD')
-const config = siteConfig()
+let encryptedConfig
+if (password) {
+  encryptedConfig = await encrypt(siteConfig(), password)
+} else {
+  const published = `https://${REPO.split('/')[0].toLowerCase()}.github.io${BASE}config.enc.json`
+  const resp = await fetch(published, { cache: 'no-store' })
+  if (!resp.ok) throw new Error(`Нет SITE_PASSWORD, и не удалось взять опубликованный ${published}: ${resp.status}`)
+  encryptedConfig = await resp.json()
+  console.log(`SITE_PASSWORD не задан — оставляю опубликованный config.enc.json`)
+}
 
 rmSync(outDir, { recursive: true, force: true })
 execSync(`npx vite build --base ${BASE} --outDir dist-site --emptyOutDir`, {
@@ -70,7 +82,7 @@ execSync(`npx vite build --base ${BASE} --outDir dist-site --emptyOutDir`, {
   stdio: 'inherit',
   env: { ...process.env, VITE_STATIC: '1' },
 })
-writeFileSync(join(outDir, 'config.enc.json'), JSON.stringify(await encrypt(config, password)))
+writeFileSync(join(outDir, 'config.enc.json'), JSON.stringify(encryptedConfig))
 writeFileSync(join(outDir, '.nojekyll'), '') // GitHub Pages: отдавать файлы как есть
 console.log(`\nСобрано: ${outDir}`)
 
