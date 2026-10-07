@@ -368,14 +368,17 @@ async function transcribeVoice(env, fileId) {
   }
 
   const audio = bytesToBase64(new Uint8Array(await audioResp.arrayBuffer()));
-  const result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
-    audio,
-    language: 'ru',
-    // подсказка словаря: без неё «ВкусВилл» слышится как «вкус фил», «отель» — как «этель»
-    initial_prompt:
-      'ВкусВилл, продукты. Купи на Озоне, Wildberries, Яндекс Маркете. Билеты на поезд, самолёт. ' +
-      'Забронируй отель, квартиру, коттедж посуточно на Суточно, Островке, Авито. Москва, Питер, Казань, Сочи.'
-  });
+  // подсказка словаря: без неё «ВкусВилл» слышится как «вкус фил», «отель» — как «этель».
+  // Если модель подсказку не примет — распознаём как раньше, без неё.
+  const hint =
+    'ВкусВилл, продукты. Купи на Озоне, Wildberries, Яндекс Маркете. Билеты на поезд, самолёт. ' +
+    'Забронируй отель, квартиру, коттедж посуточно на Суточно, Островке, Авито. Москва, Питер, Казань, Сочи.';
+  let result;
+  try {
+    result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', { audio, language: 'ru', initial_prompt: hint });
+  } catch (err) {
+    result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', { audio, language: 'ru' });
+  }
 
   return ((result && result.text) || '').trim();
 }
