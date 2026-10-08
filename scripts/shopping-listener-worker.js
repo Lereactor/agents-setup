@@ -28,7 +28,7 @@
 //                                    повтор зависшего запроса, статус)
 //
 // Bindings — Settings → Bindings:
-//   AI  — Workers AI binding (для распознавания голосовых через Whisper),
+//   AI  — Workers AI binding (Whisper для голосовых + ИИ-маршрутизатор для текста без слов агентов),
 //         добавляется через дашборд (Add → Workers AI), API-токена не требует.
 //
 // Дедупликация по update_id — через Workers KV (Storage & Databases → KV →
@@ -129,6 +129,7 @@ const HELP_TEXT = `🦁 Шпаргалка по агентам
 • закажи во вкусвилл завтрак на двоих. А ещё купи футбольный мяч. Завтра еду в Казань — найди отель
 • поезд и отель в Казань на выходные
 
+🧠 Не нашёл слов агента, но похоже на просьбу («где переночевать в Твери», «подарок маме до 5000») — пойму по смыслу.
 🎙️ Можно голосом — те же слова.
 ❓ Эта подсказка — «помощь» или «?»`;
 
@@ -278,18 +279,114 @@ function planDispatch(text) {
         item.targets.includes(agent) ||
         (!item.targets.length && (i < lastOwn || (i > lastTargeted && sentences[lastTargeted].targets.includes(agent))))
     );
-    const others = agents.filter((other) => other !== agent).map((other) => AGENT_SCOPE[other]);
-    const note =
-      `\n\n(Сообщение разобрано на несколько агентов. Ты отвечаешь только за: ${AGENT_SCOPE[agent]}. ` +
-      `${others.join('; ')} — делают другие агенты, это не ищи. ` +
-      `Всё сообщение — только для контекста (место, даты, сколько людей): «${text}»)`;
     return {
       target: agent,
-      text: keep.map((item) => item.sentence).join(' ') + note,
+      text: keep.map((item) => item.sentence).join(' ') + agentNote(agent, agents, text),
       shown: keep.filter((item) => item.targets.includes(agent)).map((item) => item.sentence).join(' ')
     };
   });
 }
+
+function agentNote(agent, agents, text) {
+  const others = agents.filter((other) => other !== agent).map((other) => AGENT_SCOPE[other]);
+  return (
+    `\n\n(Сообщение разобрано на несколько агентов. Ты отвечаешь только за: ${AGENT_SCOPE[agent]}. ` +
+    `${others.join('; ')} — делают другие агенты, это не ищи. ` +
+    `Всё сообщение — только для контекста (место, даты, сколько людей): «${text}»)`
+  );
+}
+
+// ИИ-маршрутизатор — запасной путь. Ключевые слова остаются главным (бесплатно и мгновенно);
+// если ни одно не совпало, но сообщение похоже на просьбу, — один короткий вопрос модели
+// Workers AI «кому это?» (тот же binding AI, что и Whisper; бесплатный суточный лимит Cloudflare).
+// Короткие реплики («спасибо», «ок») до модели не доходят; запусков модели — не больше лимита в сутки.
+const AI_ROUTER_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+const AI_ROUTER_DAILY_LIMIT = 200;
+const AI_ROUTER_MIN_CONFIDENCE = 0.7;
+const SMALL_TALK_WORDS = [
+  'спасибо', 'спс', 'благодарю', 'ок', 'окей', 'ага', 'угу', 'да', 'нет', 'привет', 'пока', 'класс', 'супер',
+  'отлично', 'понял', 'поняла', 'понятно', 'хорошо', 'круто', 'норм', 'ясно', 'ну', 'ладно', 'thanks', 'ok', 'большое', 'огромное'
+];
+const AI_ROUTER_PROMPT = `Ты — маршрутизатор личного Telegram-ассистента. Реши, просит ли пользователь сейчас что-то сделать кого-то из агентов, и кого именно.
+Агенты:
+- grocery — продукты и еда домой из ВкусВилла: завтрак, ужин, продукты на рецепт, привезти поесть;
+- travel — билеты на поезд, самолёт, автобус, электричку; как добраться из города в город;
+- booking — жильё: отель, квартира, дом, коттедж на ночь или сутки; где остановиться, переночевать;
+- shopping — товары на маркетплейсах (Ozon, Wildberries, Я.Маркет): техника, одежда, вещи, подарки, сравнить цены на товар.
+Правила:
+- Задача — только явная просьба найти, подобрать, купить, заказать, забронировать. Рассказ, мнение, жалоба, благодарность, вопрос о прошлом, шутка, болтовня — не задача: tasks пустой.
+- В одном сообщении может быть несколько задач для разных агентов — каждую отдельно, словами пользователя.
+- Не уверен — tasks пустой. confidence — от 0 до 1.
+Примеры:
+«хочу на море в сентябре, где остановиться подешевле?» → {"tasks":[{"agent":"booking","text":"хочу на море в сентябре, где остановиться подешевле?","confidence":0.85}]}
+«подарок маме на день рождения, бюджет 5000» → {"tasks":[{"agent":"shopping","text":"подарок маме на день рождения, бюджет 5000","confidence":0.8}]}
+«что-нибудь на ужин на троих, чтобы привезли через час» → {"tasks":[{"agent":"grocery","text":"что-нибудь на ужин на троих, чтобы привезли через час","confidence":0.85}]}
+«как добраться до Твери в субботу и где там переночевать» → {"tasks":[{"agent":"travel","text":"как добраться до Твери в субботу","confidence":0.9},{"agent":"booking","text":"где там переночевать","confidence":0.85}]}
+«вчера ездил в Тверь, было классно» → {"tasks":[]}
+«отель был ужасный» → {"tasks":[]}
+Ответь только JSON без пояснений: {"tasks":[{"agent":"grocery|travel|booking|shopping","text":"…","confidence":0.0}]}`;
+
+function aiRouterEligible(text) {
+  if (!text || text.trim().length < 8) return false;
+  const words = wordsOf(text);
+  return words.length >= 2 && !words.every((word) => SMALL_TALK_WORDS.includes(word));
+}
+
+function parseRouterTasks(raw) {
+  let data = raw;
+  if (typeof raw === 'string') {
+    const found = raw.match(/\{[\s\S]*\}/);
+    if (!found) return [];
+    try {
+      data = JSON.parse(found[0]);
+    } catch (err) {
+      return [];
+    }
+  }
+  const byAgent = new Map();
+  for (const task of (data && data.tasks) || []) {
+    if (!AGENT_SCOPE[task.agent] || !(Number(task.confidence) >= AI_ROUTER_MIN_CONFIDENCE)) continue;
+    const part = String(task.text || '').trim();
+    byAgent.set(task.agent, [byAgent.get(task.agent), part].filter(Boolean).join(' '));
+  }
+  return [...byAgent].map(([agent, part]) => ({ agent, text: part }));
+}
+
+// → {plan, reason}; plan того же вида, что у planDispatch. Сам ничего не запускает.
+async function aiRoute(env, text) {
+  if (!env.AI) return { plan: [], reason: 'no AI binding' };
+  if (!aiRouterEligible(text)) return { plan: [], reason: 'small talk' };
+  if (env.UPDATE_CACHE) {
+    const key = 'ai_router:' + new Date().toISOString().slice(0, 10);
+    const used = Number(await env.UPDATE_CACHE.get(key)) || 0;
+    if (used >= AI_ROUTER_DAILY_LIMIT) return { plan: [], reason: 'daily limit' };
+    await env.UPDATE_CACHE.put(key, String(used + 1), { expirationTtl: 172800 });
+  }
+  let raw;
+  try {
+    const result = await env.AI.run(AI_ROUTER_MODEL, {
+      messages: [
+        { role: 'system', content: AI_ROUTER_PROMPT },
+        { role: 'user', content: text.slice(0, 1500) }
+      ],
+      max_tokens: 400,
+      temperature: 0
+    });
+    raw = result.response;
+  } catch (err) {
+    return { plan: [], reason: 'ai error: ' + String(err) };
+  }
+  const tasks = parseRouterTasks(raw);
+  if (!tasks.length) return { plan: [], reason: 'not a task', raw };
+  const agents = tasks.map((task) => task.agent);
+  const plan =
+    tasks.length === 1
+      ? [{ target: tasks[0].agent, text, shown: text }]
+      : tasks.map((task) => ({ target: task.agent, text: task.text + agentNote(task.agent, agents, text), shown: task.text }));
+  return { plan, reason: 'ai', raw };
+}
+
+const AI_ROUTER_ACK = '🧠 Слов агента не нашёл — понял по смыслу.\n';
 
 function planAck(plan) {
   if (plan.length === 1) return `✅ Взял в работу: ${AGENT_LABELS[plan[0].target]}`;
@@ -300,14 +397,23 @@ function planAck(plan) {
 }
 
 // Запуск по плану: одно общее «Принял», затем агенты параллельно (пауза — у каждого своя).
-async function dispatchPlan(env, plan, baseParams, ackPrefix = '') {
+async function dispatchPlan(env, plan, baseParams, ackPrefix = '', recordExtra = {}) {
   await sendTelegramMessage(env, {
     chatId: baseParams.chat_id,
     text: ackPrefix + planAck(plan),
     replyToMessageId: baseParams.message_id,
     businessConnectionId: baseParams.business_connection_id
   });
-  return Promise.all(plan.map((item) => dispatch(env, item.target, { ...baseParams, text: item.text }, null)));
+  return Promise.all(plan.map((item) => dispatch(env, item.target, { ...baseParams, text: item.text }, null, recordExtra)));
+}
+
+// Текст без слов агентов: спросить модель и, если это задача, запустить по её плану.
+// Не задача — молчим, как и раньше.
+async function aiRouteAndDispatch(env, text, params) {
+  const routed = await aiRoute(env, text);
+  if (!routed.plan.length) return { ok: true, skipped: 'no trigger word', ai_router: routed.reason };
+  const results = await dispatchPlan(env, routed.plan, params, AI_ROUTER_ACK, { router: 'ai' });
+  return { ok: true, triggered: true, ai_router: 'ai', targets: routed.plan.map((item) => item.target), results };
 }
 
 function largestPhotoFileId(photoArray) {
@@ -468,6 +574,13 @@ async function handleAdmin(env, action, body) {
     }
     return { ok: true, paused };
   }
+  // route {text} — как слушатель разобрал бы текст (слова, затем модель), без запуска агентов.
+  if (action === 'route') {
+    const text = String(body.text || '');
+    const keywords = planDispatch(text);
+    const ai = keywords.length ? null : await aiRoute(env, text);
+    return { ok: true, keywords: keywords.map((item) => item.target), ai };
+  }
   if (!AGENT_LABELS[agent]) return { ok: false, error: 'unknown agent' };
 
   if (action === 'pause') {
@@ -533,7 +646,14 @@ async function processVoiceMessage(env, message, update, candidate) {
     return { ok: true, help: true, transcript };
   }
 
-  const plan = planDispatch(transcript);
+  let plan = planDispatch(transcript);
+  let ackPrefix = `🎙️ Понял: "${transcript}"\n`;
+  let recordExtra = {};
+  if (!plan.length) {
+    plan = (await aiRoute(env, transcript)).plan;
+    ackPrefix += AI_ROUTER_ACK;
+    recordExtra = { router: 'ai' };
+  }
   if (!plan.length) {
     await notify(
       `🎙️ Понял: "${transcript}" — но не понял, кому это адресовано ` +
@@ -549,7 +669,7 @@ async function processVoiceMessage(env, message, update, candidate) {
     text: transcript,
     photo_file_id: ''
   };
-  const results = await dispatchPlan(env, plan, params, `🎙️ Понял: "${transcript}"\n`);
+  const results = await dispatchPlan(env, plan, params, ackPrefix, recordExtra);
   return {
     ok: true,
     triggered: true,
@@ -658,13 +778,6 @@ export default {
       return json({ ok: true, resumed: resumeAgent });
     }
 
-    const plan = planDispatch(candidate.text);
-    if (!plan.length) {
-      return json({ ok: true, skipped: 'no trigger word' });
-    }
-    const target = plan[0].target;
-    const targets = plan.map((item) => item.target);
-
     const params = {
       chat_id: message.chat.id,
       message_id: message.message_id,
@@ -672,6 +785,17 @@ export default {
       text: candidate.text,
       photo_file_id: candidate.photoFileId
     };
+
+    const plan = planDispatch(candidate.text);
+    if (!plan.length) {
+      if (!env.AI || !aiRouterEligible(candidate.text)) return json({ ok: true, skipped: 'no trigger word' });
+      // Модель отвечает 1–3 с — Telegram получает 200 сразу, решение и запуск — в фоне.
+      if (isDebug) return json(await aiRouteAndDispatch(env, candidate.text, params));
+      ctx.waitUntil(aiRouteAndDispatch(env, candidate.text, params));
+      return json({ ok: true, processing: 'ai-router' });
+    }
+    const target = plan[0].target;
+    const targets = plan.map((item) => item.target);
 
     // Диагностический режим (?debug=1): дожидаемся ответа fire и возвращаем
     // его в теле — удобно для ручной проверки через curl. В обычной работе
