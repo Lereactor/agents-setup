@@ -298,7 +298,7 @@ ly = event_mid - lh / 2
 box(lx, ly, lw_, lh, PANEL, None)
 icon(lx + 15, ly + lh - 17, 8, "bolt", NAVY)
 text(lx + 28, ly + lh - 21, "Слушатель", "B", 10.5)
-bullets = ["голос → текст (Whisper)", "делит сообщение на задачи", "«Принял» за 1–2 секунды", "пауза и повтор по команде"]
+bullets = ["голос → текст (Whisper)", "делит на задачи; без слов — поймёт по смыслу", "«Принял» за 1–2 секунды", "пауза и повтор по команде"]
 by_ = ly + lh - 40
 for b in bullets:
     c.setFillColor(ACCENT)
@@ -408,7 +408,7 @@ text(tx0 + 14, ex_top - 6, "ТЕХНИКА", "B", 10, MUTED)
 tech = [
     ("Мозг агентов", "Claude Code Routines (Anthropic) — у каждого агента свой сценарий и инструменты"),
     ("Данные", "MCP-коннекторы ВкусВилла и Туту · Apify: Ozon, WB, Я.Маркет, Островок, Авито · API Суточно"),
-    ("Слушатель", "Cloudflare Worker + Workers AI (Whisper): голос, разбор задач, пауза"),
+    ("Слушатель", "Cloudflare Worker + Workers AI: Whisper для голоса, маршрутизатор по смыслу, разбор задач, пауза"),
     ("Журнал и сайт", "Google Sheets + React/React Flow на GitHub Pages, данные зашифрованы"),
     ("Безопасность", "ключи — в секретах Cloudflare и облака, ничего не оплачивается автоматически"),
 ]
