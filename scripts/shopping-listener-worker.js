@@ -26,6 +26,7 @@
 //                                    скачать файл + отправить ack/ошибку в чат)
 //   WATCHDOG_ADMIN_TOKEN           — ключ надзирателя для /admin/* (пауза агента,
 //                                    повтор зависшего запроса, статус)
+//   APIFY_TOKEN                    — для ежедневной проверки кредита Apify (cron)
 //
 // Bindings — Settings → Bindings:
 //   AI  — Workers AI binding (Whisper для голосовых + ИИ-маршрутизатор для текста без слов агентов),
@@ -565,6 +566,69 @@ async function dispatch(env, target, params, ackText, recordExtra = {}) {
   return fireResult;
 }
 
+// Кредит Apify: раз в день (cron 06:00 UTC = 09:00 МСК) слушатель смотрит расход за месяц и
+// на каждый порог один раз за месяц пишет в группу. Без AI — 0 токенов.
+const ALERT_CHAT_ID = '-1004369832565';
+const APIFY_THRESHOLDS = [0.8, 0.95];
+const RU_MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+function usd(value) {
+  return '$' + value.toFixed(2).replace('.', ',');
+}
+
+async function apifyCredit(env) {
+  const resp = await fetch('https://api.apify.com/v2/users/me/limits', {
+    headers: { Authorization: 'Bearer ' + env.APIFY_TOKEN }
+  });
+  if (!resp.ok) throw new Error('apify limits ' + resp.status);
+  const { data } = await resp.json();
+  const renew = new Date(Date.parse(data.monthlyUsageCycle.endAt) + 1000);
+  return {
+    used: data.current.monthlyUsageUsd,
+    limit: data.limits.maxMonthlyUsageUsd,
+    cycle: data.monthlyUsageCycle.startAt.slice(0, 10),
+    renews: `${renew.getUTCDate()} ${RU_MONTHS[renew.getUTCMonth()]}`
+  };
+}
+
+function apifyAlertText(credit, level) {
+  const spent = `${usd(credit.used)} из ${usd(credit.limit)} (${Math.round((credit.used / credit.limit) * 100)} %)`;
+  if (level >= 0.95) {
+    return (
+      `⛔ Кредит Apify почти кончился: ${spent}.\n` +
+      `До ${credit.renews} Ozon, WB, Я.Маркет, Островок и Авито могут не отвечать. ` +
+      'Суточно, Туту и ВкусВилл работают как обычно.'
+    );
+  }
+  return (
+    `⚠️ Apify: потрачено ${spent}, кредит обновится ${credit.renews}.\n` +
+    'Запрос в 🛒 Покупки стоит ≈$0,15, в 🏡 Жильё ≈$0,08.'
+  );
+}
+
+// dryRun — только посчитать и показать текст (для /admin/apify), без отправки и отметки в KV.
+async function checkApifyCredit(env, { dryRun = false } = {}) {
+  if (!env.APIFY_TOKEN) return { ok: false, error: 'no APIFY_TOKEN' };
+  const credit = await apifyCredit(env);
+  const share = credit.limit ? credit.used / credit.limit : 0;
+  const level = [...APIFY_THRESHOLDS].reverse().find((threshold) => share >= threshold);
+  if (!level) return { ok: true, ...credit, share, alert: null };
+  const key = (threshold) => `apify_alert:${credit.cycle}:${threshold}`;
+  if (env.UPDATE_CACHE && (await env.UPDATE_CACHE.get(key(level)))) {
+    return { ok: true, ...credit, share, alert: 'already sent' };
+  }
+  const text = apifyAlertText(credit, level);
+  if (dryRun) return { ok: true, ...credit, share, alert: text, sent: false };
+  await sendTelegramMessage(env, { chatId: env.ALERT_CHAT_ID || ALERT_CHAT_ID, text });
+  if (env.UPDATE_CACHE) {
+    // перескочили сразу на 95 % — предупреждение про 80 % уже не нужно
+    for (const threshold of APIFY_THRESHOLDS.filter((t) => t <= level)) {
+      await env.UPDATE_CACHE.put(key(threshold), '1', { expirationTtl: 40 * 86400 });
+    }
+  }
+  return { ok: true, ...credit, share, alert: text, sent: true };
+}
+
 // Служебные команды надзирателя (Routine Guard). POST /admin/<action>,
 // Authorization: Bearer WATCHDOG_ADMIN_TOKEN, тело JSON.
 //   pause   {agent, reason}      — поставить на паузу (слушатель перестаёт запускать агента)
@@ -580,6 +644,8 @@ async function handleAdmin(env, action, body) {
     }
     return { ok: true, paused };
   }
+  // apify {send?} — расход кредита Apify и текст предупреждения; send: true — отправить как по расписанию.
+  if (action === 'apify') return checkApifyCredit(env, { dryRun: body.send !== true });
   // route {text} — как слушатель разобрал бы текст (слова, затем модель), без запуска агентов.
   if (action === 'route') {
     const text = String(body.text || '');
@@ -824,5 +890,10 @@ export default {
     );
 
     return json({ ok: true, triggered: true, target, targets });
+  },
+
+  // Cron Triggers (Settings → Triggers): «0 6 * * *» — проверка кредита Apify.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(checkApifyCredit(env));
   }
 };
