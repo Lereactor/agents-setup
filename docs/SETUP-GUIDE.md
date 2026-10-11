@@ -616,6 +616,46 @@ seller-side MCP для управления ценами (не для покуп
    и сообщение «не понял, кому» в голосовых обновлены. PDF-архитектура (стр. 1–4) и одностраничник
    показывают маршрутизатор (маркер «Workers AI» = Whisper + «кому это?»).
 
+## 6.15 Ответы голосом Льва (синтез на своём ПК, 2026-10-11)
+
+Голосом идут только «✅ Взял в работу / Разобрал на N задачи» (слушатель) и утренний отчёт
+надзирателя; всё остальное — текстом. Голосовое приходит с подписью-текстом. Бесплатно: синтез
+делает ПК Льва (RTX 3060) моделью F5-TTS Russian (Misha24-10/F5-TTS_RUSSIAN, версия v2, лицензия
+CC BY-NC — только личное использование) по образцу голоса 11 с. ПК выключен — всё текстом, как раньше.
+
+Схема (входящий туннель провайдер режет — TLS-рукопожатие cloudflared с Cloudflare обрывается,
+поэтому соединение держит сам ПК):
+`ПК voice/tts_server.py ──WebSocket wss://shopping-listener…/tts-connect (X-Key = TTS_KEY)──► TtsHub (Durable Object)`
+`слушатель say() → TtsHub /tts {text} → ПК синтезирует → OGG/Opus → sendVoice (подпись = текст)`
+
+1. Файлы: `voice/tts_server.py` (модель + WebSocket-клиент), `voice/start.vbs` (запуск без окна).
+   В git не попадают: `voice/.venv`, `voice/models` (1,3 ГБ), `voice/ref` (образец голоса),
+   `voice/ca-bundle.pem`, `voice/tts.log`.
+2. Установка (уже сделано): `python -m venv voice/.venv`; антивирус подменяет HTTPS, поэтому pip —
+   с `PIP_CERT=voice/ca-bundle.pem` (сертификаты certifi + хранилище Windows, собраны через
+   `ssl.enum_certificates`); `pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124`,
+   `pip install f5-tts ruaccent imageio-ffmpeg websockets`; ffmpeg из imageio-ffmpeg скопирован в
+   `.venv/Scripts/ffmpeg.exe`. Модель: `F5TTS_v1_Base_v2/model_last_inference.safetensors` +
+   `F5TTS_v1_Base/vocab.txt` → `voice/models/`.
+3. Образец голоса: голосовое 10–15 с в группу → `POST /admin/tts-file` (берёт голосовое из
+   последнего апдейта) → `voice/ref/ref.ogg`; текст образца — `voice/ref/ref.txt`
+   (нет файла — модель распознает сама). Сменить голос: новое голосовое → tts-file → удалить
+   `ref.wav`, перезапустить.
+4. Ударения — RUAccent; его модель омографов падает на некоторых словах («двоих») — тогда ударения
+   по словам, сломанное слово без ударения. Скорость: `nfe_step=16` (≈4–5 с на фразу; 32 шага —
+   вдвое дольше, слушатель ждёт ПК не больше 14 с).
+5. Автозапуск: ярлык «Голос ассистентов» в `shell:startup` → `wscript voice\start.vbs`.
+   Остановить — Диспетчер задач → `pythonw.exe`. Лог — `voice/tts.log` («подключён к слушателю»,
+   «синтез N с»).
+6. Слушатель: секрет `TTS_KEY` (в `cf_api.txt`), Durable Object `TTS_HUB` (класс `TtsHub`,
+   миграция v1, hibernation — пока фраз нет, не тратит лимиты; ПК шлёт «ping» раз в 30 с).
+   Первая выкладка с хабом — полная (`scratchpad/cf_deploy_do.py`: привязка + миграция,
+   `keep_bindings` для секретов/KV/AI); дальше обычный `cf_deploy.py`.
+7. Проверка: `POST /admin/tts-status` → `{connected: 1}`; `POST /admin/tts-test {text}` →
+   `{bytes, ms}` (синтез через хаб, без отправки в чат); `POST /admin/say {text, speech, dry: true}`.
+8. Надзиратель (Guard), шаг 7: пишет `/tmp/reply.txt` (отчёт) и `/tmp/speech.txt` (1–3 фразы для
+   озвучки) и шлёт `POST /admin/say`; ответ не ok — напрямую sendMessage.
+
 ## 7. AI Agent Live Visualization (отдельная локальная демка, не Telegram)
 
 Полный дизайн — `docs/plans/2026-08-26-ai-agent-visualization-design.md`,

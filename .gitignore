@@ -19,3 +19,12 @@ build/
 .claude/mcp-watch-state.json
 routine-prompts/
 cf_api.txt
+
+# локальный синтез голоса (F5-TTS): окружение, модели, образец голоса
+voice/.venv/
+voice/models/
+voice/ref/
+voice/*.log
+
+voice/ca-bundle.pem
+voice/test*
