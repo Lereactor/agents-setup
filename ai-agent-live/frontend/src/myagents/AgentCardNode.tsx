@@ -5,6 +5,7 @@ import GroceryArt from './art/GroceryArt'
 import NewsArt from './art/NewsArt'
 import ShoppingArt from './art/ShoppingArt'
 import BookingArt from './art/BookingArt'
+import NearbyArt from './art/NearbyArt'
 import TravelArt from './art/TravelArt'
 import WatchdogArt from './art/WatchdogArt'
 import ReplyBubble from './ReplyBubble'
@@ -32,6 +33,7 @@ const ART: Record<AgentId, (p: { active: boolean }) => JSX.Element> = {
   grocery: GroceryArt,
   travel: TravelArt,
   booking: BookingArt,
+  nearby: NearbyArt,
   'news-digest': NewsArt,
   watchdog: WatchdogArt,
 }

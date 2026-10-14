@@ -39,6 +39,7 @@ AGENT = {
     "grocery": HexColor("#3FB45F"),
     "travel": HexColor("#1FB3C8"),
     "booking": HexColor("#F07A52"),
+    "nearby": HexColor("#F06292"),
     "news": HexColor("#F0A23A"),
     "watchdog": HexColor("#8A63D2"),
 }
@@ -195,7 +196,7 @@ def legend(y):
 # Страница 1 — где что находится
 # =====================================================================
 header("Где что находится и как связано",
-       "Шесть агентов живут в облаке Anthropic; слушатель в Cloudflare принимает сообщения и решает, кого будить", 1)
+       "Семь агентов живут в облаке Anthropic; слушатель в Cloudflare принимает сообщения и решает, кого будить", 1)
 
 TOP = H - 72
 BOT = 40
@@ -231,8 +232,9 @@ text(ax + 74, ay + ah - 34, "каждый запуск = сессия Claude (So
 text(ax + 10, ay + ah - 52, "ПО СООБЩЕНИЮ (fire API от слушателя)", "B", 7, MUTED)
 agents_event = [("shopping", "Покупки", "Ozon · WB · Я.Маркет", True),
                 ("grocery", "Продукты", "ВкусВилл MCP", False),
-                ("travel", "Поездки", "Туту MCP", False),
-                ("booking", "Жильё", "Суточно · Островок · Авито · Туту", True)]
+                ("travel", "Поездки", "Туту MCP · Aviasales (календарь цен)", False),
+                ("booking", "Жильё", "Суточно · Островок · Авито · Туту · 2ГИС", True),
+                ("nearby", "Рядом", "2ГИС: места, рейтинг, часы, пешком", False)]
 agent_mid = {}
 yy = ay + ah - 60
 for key, name, src, paid in agents_event:
@@ -264,6 +266,7 @@ srcs = [("Туту MCP", "поезда, авиа, автобусы, отели; 
         ("ВкусВилл MCP", "товары, корзина-ссылка", None),
         ("Apify", "Ozon, WB, Я.Маркет, Островок, Авито; ≤ $0,10 за вызов", "apify"),
         ("API Суточно", "поиск жилья, открытый API сайта", None),
+        ("2ГИС · Aviasales MCP", "на вашем VPS: места, маршруты; цены авиабилетов", None),
         ("Веб-поиск", "для новостей", None)]
 yy = sy + sh - 26
 src_mid = {}
@@ -315,7 +318,7 @@ for key, *_ in agents_event:
 label(cfx + cfw + 12, wk_cy + 22, "fire API", INK, anchor="c")
 # агенты → источники
 for key, target in (("shopping", "Apify"), ("grocery", "ВкусВилл MCP"), ("travel", "Туту MCP"),
-                    ("booking", "API Суточно"), ("news", "Веб-поиск")):
+                    ("booking", "API Суточно"), ("news", "Веб-поиск"), ("nearby", "2ГИС · Aviasales MCP")):
     arrow(ax + aw - 10, agent_mid[key], sx + 8, src_mid[target], tint(AGENT[key], 0.9), lw=1, head=4)
 arrow(ax + aw - 10, agent_mid["booking"] - 3, sx + 8, src_mid["Apify"] - 5, tint(AGENT["booking"], 0.9), lw=1, head=4)
 arrow(ax + aw - 10, agent_mid["booking"] - 6, sx + 8, src_mid["Туту MCP"] - 6, tint(AGENT["booking"], 0.9), lw=1, head=4)
@@ -326,7 +329,7 @@ poly_arrow([(ax + aw / 2, ay + ah), (ax + aw / 2, bus_y), (tgx + tgw / 2 + 30, b
 label((ax + tgx + tgw) / 2 + 40, bus_y - 2, "ответы агентов — sendMessage в Telegram", TG_DARK, bg=white)
 # агенты → журнал
 poly_arrow([(ax + 40, ay), (ax + 40, gy + gh - 57), (gx + gw - 10, gy + gh - 57)], GOOGLE, lw=1.2)
-label((gx + gw + ax + 40) / 2, gy + gh - 52, "шаги, итог", GOOGLE)
+label((gx + gw + ax + 40) / 2, gy + gh - 70, "шаги, итог", GOOGLE)
 # надзиратель → журнал (чтение) и → слушатель /admin
 poly_arrow([(ax + 10, agent_mid["watchdog"] - 4), (ax - 8, agent_mid["watchdog"] - 4), (ax - 8, gy + gh - 40),
             (gx + gw - 10, gy + gh - 40)], AGENT["watchdog"], lw=1.1, dash=(3, 2))
@@ -586,7 +589,7 @@ sections = [
     ]),
     ("free", "Бесплатно, без AI", [
         "фильтр слушателя: дубли, боты, «помощь», «включи…», слова агентов, «спасибо» и «ок»",
-        "«Принял», паузы, журнал, веб-панель; MCP Туту и ВкусВилла, API Суточно",
+        "«Принял», паузы, журнал, веб-панель; MCP Туту, ВкусВилла, 2ГИС, Aviasales; API Суточно",
     ]),
 ]
 for kind, title, items in sections:

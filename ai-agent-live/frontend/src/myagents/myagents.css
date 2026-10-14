@@ -525,6 +525,54 @@
   animation: tag-pop-up 1.8s ease-out 0.4s infinite;
 }
 
+/* nearby */
+.near-spot {
+  fill: #6f6a85;
+  transition: fill 0.5s;
+}
+.near-ring {
+  fill: none;
+  stroke: #f06292;
+  stroke-width: 2;
+  opacity: 0;
+  transform-origin: 120px 76px;
+}
+.near-pin {
+  transform-origin: 120px 80px;
+  animation: bob 5s ease-in-out infinite;
+}
+.art--active .near-pin {
+  animation: near-hop 1.2s ease-in-out infinite;
+}
+.art--active .near-ring {
+  animation: near-ring 2.2s ease-out infinite;
+}
+.art--active .near-ring--2 {
+  animation-delay: 1.1s;
+}
+.art--active .near-spot {
+  fill: #ffd166;
+  animation: window-flicker 1.6s ease-in-out infinite;
+}
+.art--active .near-spot--2 {
+  animation-delay: 0.4s;
+}
+.art--active .near-spot--3 {
+  animation-delay: 0.8s;
+}
+.art--active .near-spot--4 {
+  animation-delay: 1.2s;
+}
+@keyframes near-hop {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-9px); }
+  60% { transform: translateY(-9px); }
+}
+@keyframes near-ring {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(7); opacity: 0; }
+}
+
 /* news */
 .news-sun {
   transform-origin: 50% 50%;

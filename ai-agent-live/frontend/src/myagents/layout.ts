@@ -24,7 +24,7 @@ export interface ParticleEdgeData {
  *                ╱      │      ╲
  *     🥕 Продукты       │        🏡 Жильё
  *                       │
- *          📰 Новости ─ 🛡️ Надзиратель
+ *          📰 Новости ─ 🛡️ Надзиратель     📍 Рядом
  *
  *  Надзиратель связан со слушателем (пауза и повтор идут через его /admin) и с новостями.
  *  Расписания — строкой на карточках Новостей и Надзирателя. Ось симметрии x = 385. */
@@ -40,6 +40,7 @@ export const AGENT_POSITIONS: Record<AgentId, { x: number; y: number }> = {
   booking: { x: 570, y: 250 },
   'news-digest': { x: -25, y: 510 },
   watchdog: { x: 255, y: 510 },
+  nearby: { x: 535, y: 510 },
 }
 
 export const DEFAULT_POSITIONS: Record<string, { x: number; y: number }> = {
@@ -54,6 +55,7 @@ const COLORS: Record<AgentId, string> = {
   grocery: '#4cc96b',
   travel: '#26c6da',
   booking: '#ff8a65',
+  nearby: '#f06292',
   'news-digest': '#ffb347',
   watchdog: '#b18cff',
 }
@@ -66,6 +68,7 @@ const specs: EdgeSpec[] = [
   { id: 'worker-grocery', source: 'worker', target: 'grocery', data: { color: COLORS.grocery, agent: 'grocery' } },
   { id: 'worker-travel', source: 'worker', target: 'travel', data: { color: COLORS.travel, agent: 'travel' } },
   { id: 'worker-booking', source: 'worker', target: 'booking', data: { color: COLORS.booking, agent: 'booking' } },
+  { id: 'worker-nearby', source: 'worker', target: 'nearby', data: { color: COLORS.nearby, agent: 'nearby' } },
   { id: 'watch-worker', source: 'watchdog', target: 'worker', data: { color: COLORS.watchdog, agent: 'watchdog', watch: true } },
   { id: 'watch-news', source: 'watchdog', target: 'news-digest', data: { color: COLORS.watchdog, agent: 'watchdog', watch: true } },
 ]
@@ -74,5 +77,5 @@ export const baseEdges: Edge<ParticleEdgeData>[] = specs.map((e) => ({ ...e, typ
 
 /** Ребро Лев → Слушатель общее для агентов по сообщению — оживает от любого из них. */
 export function edgeAgents(edge: Edge<ParticleEdgeData>): AgentId[] {
-  return edge.id === 'tg-worker' ? ['shopping', 'grocery', 'travel', 'booking'] : [edge.data!.agent]
+  return edge.id === 'tg-worker' ? ['shopping', 'grocery', 'travel', 'booking', 'nearby'] : [edge.data!.agent]
 }

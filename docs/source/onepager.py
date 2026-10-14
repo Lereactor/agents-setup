@@ -30,6 +30,7 @@ AGENT = {
     "grocery": HexColor("#3FB45F"),
     "travel": HexColor("#1FB3C8"),
     "booking": HexColor("#F07A52"),
+    "nearby": HexColor("#F06292"),
     "news": HexColor("#F0A23A"),
     "watchdog": HexColor("#8A63D2"),
 }
@@ -150,6 +151,15 @@ def icon(x, y, r, kind, color):
         p.lineTo(x - k * 0.55, y - k * 0.3)
         p.close()
         c.drawPath(p, stroke=0, fill=1)
+    elif kind == "nearby":  # булавка на карте
+        p = c.beginPath()
+        p.moveTo(x, y - k * 1.1)
+        p.curveTo(x - k * 1.2, y + k * 0.1, x - k * 0.8, y + k * 1.1, x, y + k * 1.1)
+        p.curveTo(x + k * 0.8, y + k * 1.1, x + k * 1.2, y + k * 0.1, x, y - k * 1.1)
+        c.drawPath(p, stroke=0, fill=1)
+        c.setFillColor(white)
+        c.circle(x, y + k * 0.35, k * 0.35, stroke=0, fill=1)
+        c.setFillColor(color)
     elif kind == "booking":  # домик
         p = c.beginPath()
         p.moveTo(x - k * 1.05, y + k * 0.05)
@@ -212,8 +222,8 @@ text(M + stringWidth("Персональные ассистенты", "B", 25) +
 text(M, H - 64, "Пишете или говорите в один чат как живому помощнику — агенты сами ищут, сравнивают и присылают "
      "готовые подборки со ссылками", "R", 11, HexColor("#C9D3F5"))
 
-stats = [("6 агентов", "4 по запросу + новости и надзор"),
-         ("8 площадок", "Ozon, WB, ВкусВилл, Туту, Суточно…"),
+stats = [("7 агентов", "5 по запросу + новости и надзор"),
+         ("10 площадок", "Ozon, WB, ВкусВилл, Туту, 2ГИС…"),
          ("1–3 минуты", "от сообщения до подборки с ценами"),
          ("текст и голос", "несколько задач в одном сообщении"),
          ("24/7", "сам следит за собой и чинится")]
@@ -237,8 +247,9 @@ rows_top = top - 14
 event_agents = [
     ("shopping", "Покупки", "топ-5 по цене и отзывам + совет", ["Ozon", "WB", "Я.Маркет"]),
     ("grocery", "Продукты", "корзина по списку или рецепту", ["ВкусВилл"]),
-    ("travel", "Поездки", "поезда, самолёты, автобусы", ["Туту"]),
-    ("booking", "Жильё", "топ-3 с каждой площадки + риски", ["Суточно", "Островок", "Авито", "Туту"]),
+    ("travel", "Поездки", "поезда, самолёты, автобусы", ["Туту", "Aviasales"]),
+    ("booking", "Жильё", "топ-3 с площадок + риски", ["Суточно", "Островок", "Авито", "Туту"]),
+    ("nearby", "Рядом", "места рядом: рейтинг, часы, пешком", ["2ГИС"]),
 ]
 sched_agents = [
     ("news", "Новости", "дайджест банков и IT", ["08:00"]),
@@ -278,7 +289,7 @@ for spec in sched_agents:
     y -= row_h + row_gap
 agents_bottom = y + row_h + row_gap
 
-event_mid = (row_y["shopping"] + row_y["booking"]) / 2
+event_mid = (row_y["shopping"] + row_y["nearby"]) / 2
 
 # пользователь
 ux, uw = M, 132
@@ -326,7 +337,7 @@ for key, *_ in event_agents:
     c.setLineWidth(1)
     c.line(ax + aw, row_y[key], ax + aw + 10, row_y[key])
 c.setStrokeColor(LINE)
-c.line(ax + aw + 10, row_y["shopping"], ax + aw + 10, row_y["booking"])
+c.line(ax + aw + 10, row_y["shopping"], ax + aw + 10, row_y["nearby"])
 arrow(ax + aw + 10, event_mid, rx - 3, event_mid, INK)
 
 # журнал + сайт
@@ -406,10 +417,10 @@ tw = W - M - tx0
 box(tx0, bottom - 6, tw, ex_top - bottom + 14, PANEL, None)
 text(tx0 + 14, ex_top - 6, "ТЕХНИКА", "B", 10, MUTED)
 tech = [
-    ("Мозг агентов", "Claude Code Routines (Anthropic) — у каждого агента свой сценарий и инструменты"),
-    ("Данные", "MCP-коннекторы ВкусВилла и Туту · Apify: Ozon, WB, Я.Маркет, Островок, Авито · API Суточно"),
-    ("Слушатель", "Cloudflare Worker + Workers AI: Whisper для голоса, маршрутизатор по смыслу, разбор задач, пауза"),
-    ("Журнал и сайт", "Google Sheets + React/React Flow на GitHub Pages, данные зашифрованы"),
+    ("Мозг агентов", "Claude Code Routines — у каждого агента свой сценарий"),
+    ("Данные", "MCP ВкусВилла, Туту, 2ГИС, Aviasales · Apify: Ozon, WB, Я.Маркет, Островок, Авито · API Суточно"),
+    ("Слушатель", "Cloudflare Worker + Workers AI: голос, задачи по смыслу, пауза"),
+    ("Журнал и сайт", "Google Sheets + сайт на GitHub Pages, данные зашифрованы"),
     ("Безопасность", "ключи — в секретах Cloudflare и облака, ничего не оплачивается автоматически"),
 ]
 yy = ex_top - 24

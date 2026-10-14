@@ -27,6 +27,8 @@
 //   WATCHDOG_ADMIN_TOKEN           — ключ надзирателя для /admin/* (пауза агента,
 //                                    повтор зависшего запроса, статус)
 //   APIFY_TOKEN                    — для ежедневной проверки кредита Apify (cron)
+//   DGIS_API_KEY                   — ежедневная проверка ключа 2ГИС (cron)
+//   ROUTINE_TRIGGER_URL_NEARBY / ROUTINE_TRIGGER_TOKEN_NEARBY — Routine «Nearby» (2ГИС)
 //
 // Bindings — Settings → Bindings:
 //   AI  — Workers AI binding (Whisper для голосовых + ИИ-маршрутизатор для текста без слов агентов),
@@ -79,12 +81,24 @@ const BOOKING_CONTEXT_EXACT = ['дом', 'домик', 'домики', 'дача
 const BOOKING_CONTEXT_PREFIXES = ['комнат', 'ноч', 'сутк', 'суток', 'выходн'];
 const BOOKING_VERB_BLOCKERS = ['столик', 'билет', 'место', 'места', 'машин', 'авто', 'деньг', 'видео', 'фото'];
 const TRAVEL_EXACT_WORDS = ['жд', 'ржд'];
+// «Рядом» (2ГИС). Слово-место — сильный признак: «найди кафе рядом с отелем» уходит сюда, а не к
+// жилью или покупкам. Слово близости («рядом», «поблизости») — слабый: только если нет слов других
+// агентов («отель рядом с метро» — это жильё).
+const NEARBY_PLACE_PREFIXES = [
+  'кафе', 'кафеш', 'ресторан', 'рестик', 'кофейн', 'бистро', 'пиццери', 'бургерн', 'шаурм', 'аптек',
+  'банкомат', 'заправк', 'пообедат', 'поужинат', 'позавтракат', 'перекусит', 'поесть', 'столик', 'музе'
+];
+const NEARBY_PLACE_EXACT = ['бар', 'бары', 'паб', 'пабы', 'азс'];
+const NEARBY_NEAR_PREFIXES = ['рядом', 'поблизост', 'неподал', 'ближайш', 'недалеко'];
+// Присланная в чат геопозиция живёт 3 часа — «аптека рядом» после неё ищет вокруг неё.
+const LOCATION_TTL_S = 3 * 3600;
 
 // Как агент называется в ответах в чат: «✅ Взял в работу: 🚆 Поездки (Туту)».
 const AGENT_LABELS = {
   grocery: '🥕 Продукты (ВкусВилл)',
   travel: '🚆 Поездки (Туту)',
   booking: '🏡 Жильё (Суточно, Островок, Авито, Туту)',
+  nearby: '📍 Рядом (2ГИС)',
   shopping: '🛒 Покупки (Ozon, WB, Я.Маркет)'
 };
 // «включи поездки» — снять паузу, которую поставил надзиратель.
@@ -92,6 +106,7 @@ const AGENT_NAMES = {
   grocery: ['продукты', 'вкусвилл', 'grocery'],
   travel: ['поездки', 'туту', 'travel'],
   booking: ['жильё', 'жилье', 'booking'],
+  nearby: ['рядом', 'nearby'],
   shopping: ['покупки', 'shopping']
 };
 // Запуски храним 2 суток — надзирателю этого хватает, чтобы найти и повторить зависший.
@@ -120,6 +135,12 @@ const HELP_TEXT = `🦁 Шпаргалка по агентам
 • квартира в Питере с 20 по 23 у метро, до 5000 за ночь
 • отель в Сочи на 3 ночи с пятницы, с завтраком
 Не написал даты или сколько гостей — считаю: ближайшие выходные, 2 гостя (и пишу это в ответе).
+
+📍 Рядом (2ГИС) — «кафе», «ресторан», «кофейня», «аптека», «банкомат», «где поесть», «… рядом / поблизости»
+• кофейня рядом с метро Чистые пруды
+• где пообедать недорого у Курского вокзала
+• пришли геопозицию (скрепка → Геопозиция), потом — «аптека рядом»
+Ответ: топ-5 с рейтингом, часами работы и сколько идти пешком.
 
 🛒 Покупки (Ozon, WB, Я.Маркет) — «купи», «найди», «закажи»
 • найди наушники Sony WH-1000XM5
@@ -196,12 +217,24 @@ function matchesBookingWords(text) {
   );
 }
 
+function matchesNearbyPlace(text) {
+  return wordsOf(text).some(
+    (word) => NEARBY_PLACE_EXACT.includes(word) || NEARBY_PLACE_PREFIXES.some((prefix) => word.startsWith(prefix))
+  );
+}
+
+function matchesNearbyNear(text) {
+  return wordsOf(text).some((word) => NEARBY_NEAR_PREFIXES.some((prefix) => word.startsWith(prefix)));
+}
+
 // Решает, какому Routine адресовать сообщение (или null, если ни один
 // набор триггер-слов не совпал).
 function detectTarget(text) {
   if (matchesTriggerWords(text, GROCERY_TRIGGER_WORDS)) return 'grocery';
+  if (matchesNearbyPlace(text)) return 'nearby';
   if (matchesBookingWords(text)) return 'booking';
   if (matchesTravelWords(text)) return 'travel';
+  if (matchesNearbyNear(text)) return 'nearby';
   if (matchesTriggerWords(text, SHOPPING_TRIGGER_WORDS)) return 'shopping';
   return null;
 }
@@ -215,9 +248,10 @@ const AGENT_SCOPE = {
   grocery: 'продукты во ВкусВилле',
   travel: 'билеты на поезд, самолёт, автобус, электричку',
   booking: 'жильё (отели, квартиры, дома)',
+  nearby: 'места поблизости (кафе, аптеки, банкоматы) и как дойти',
   shopping: 'товары на маркетплейсах'
 };
-const AGENT_ORDER = ['grocery', 'booking', 'travel', 'shopping'];
+const AGENT_ORDER = ['grocery', 'nearby', 'booking', 'travel', 'shopping'];
 
 function splitSentences(text) {
   return text
@@ -229,11 +263,13 @@ function splitSentences(text) {
 
 function sentenceTargets(sentence) {
   if (matchesTriggerWords(sentence, GROCERY_TRIGGER_WORDS)) return ['grocery'];
+  if (matchesNearbyPlace(sentence)) return ['nearby'];
   const targets = [];
   if (matchesBookingWords(sentence)) targets.push('booking');
   if (matchesTravelWords(sentence)) targets.push('travel');
   if (!targets.length) {
-    if (matchesTriggerWords(sentence, SHOPPING_TRIGGER_WORDS)) targets.push('shopping');
+    if (matchesNearbyNear(sentence)) targets.push('nearby');
+    else if (matchesTriggerWords(sentence, SHOPPING_TRIGGER_WORDS)) targets.push('shopping');
     return targets;
   }
   // «купи мяч и найди отель» — глагол покупки в своей части фразы, без жилья/транспорта.
@@ -319,7 +355,8 @@ const AI_ROUTER_PROMPT = `Ты — маршрутизатор личного Tel
 - grocery — продукты и еда домой из ВкусВилла: завтрак, ужин, продукты на рецепт, привезти поесть;
 - travel — билеты на поезд, самолёт, автобус, электричку; как добраться из города в город;
 - booking — жильё: отель, квартира, дом, коттедж на ночь или сутки; где остановиться, переночевать;
-- shopping — товары на маркетплейсах (Ozon, Wildberries, Я.Маркет): техника, одежда, вещи, подарки, сравнить цены на товар.
+- shopping — товары на маркетплейсах (Ozon, Wildberries, Я.Маркет): техника, одежда, вещи, подарки, сравнить цены на товар;
+- nearby — места поблизости: кафе, рестораны, кофейни, бары, аптеки, банкоматы, заправки, музеи; где поесть рядом, как дойти.
 Правила:
 - Задача — только явная просьба найти, подобрать, купить, заказать, забронировать. Рассказ, мнение, жалоба, благодарность, вопрос о прошлом, шутка, болтовня — не задача: tasks пустой.
 - В одном сообщении может быть несколько задач для разных агентов — каждую отдельно, словами пользователя.
@@ -329,9 +366,10 @@ const AI_ROUTER_PROMPT = `Ты — маршрутизатор личного Tel
 «подарок маме на день рождения, бюджет 5000» → {"tasks":[{"agent":"shopping","text":"подарок маме на день рождения, бюджет 5000","confidence":0.8}]}
 «что-нибудь на ужин на троих, чтобы привезли через час» → {"tasks":[{"agent":"grocery","text":"что-нибудь на ужин на троих, чтобы привезли через час","confidence":0.85}]}
 «как добраться до Твери в субботу и где там переночевать» → {"tasks":[{"agent":"travel","text":"как добраться до Твери в субботу","confidence":0.9},{"agent":"booking","text":"где там переночевать","confidence":0.85}]}
+«куда сходить выпить кофе у Патриарших» → {"tasks":[{"agent":"nearby","text":"куда сходить выпить кофе у Патриарших","confidence":0.85}]}
 «вчера ездил в Тверь, было классно» → {"tasks":[]}
 «отель был ужасный» → {"tasks":[]}
-Ответь только JSON без пояснений: {"tasks":[{"agent":"grocery|travel|booking|shopping","text":"…","confidence":0.0}]}`;
+Ответь только JSON без пояснений: {"tasks":[{"agent":"grocery|travel|booking|shopping|nearby","text":"…","confidence":0.0}]}`;
 
 function aiRouterEligible(text) {
   if (!text || text.trim().length < 8) return false;
@@ -515,6 +553,7 @@ async function triggerRoutine(env, target, params) {
     grocery: [env.ROUTINE_TRIGGER_URL_GROCERY, env.ROUTINE_TRIGGER_TOKEN_GROCERY],
     travel: [env.ROUTINE_TRIGGER_URL_TRAVEL, env.ROUTINE_TRIGGER_TOKEN_TRAVEL],
     booking: [env.ROUTINE_TRIGGER_URL_BOOKING, env.ROUTINE_TRIGGER_TOKEN_BOOKING],
+    nearby: [env.ROUTINE_TRIGGER_URL_NEARBY, env.ROUTINE_TRIGGER_TOKEN_NEARBY],
     shopping: [env.ROUTINE_TRIGGER_URL, env.ROUTINE_TRIGGER_TOKEN]
   };
   const [url, token] = endpoints[target];
@@ -535,6 +574,11 @@ async function getPause(env, target) {
   if (!env.UPDATE_CACHE) return null;
   const raw = await env.UPDATE_CACHE.get('paused:' + target);
   return raw ? JSON.parse(raw) : null;
+}
+
+async function lastLocation(env, chatId) {
+  if (!env.UPDATE_CACHE) return '';
+  return (await env.UPDATE_CACHE.get(`loc:${chatId}`)) || '';
 }
 
 // Общий путь запуска агента для текста, фото и голоса: пауза → ack с именем агента →
@@ -558,6 +602,7 @@ async function dispatch(env, target, params, ackText, recordExtra = {}) {
   }
 
   if (ackText) await reply(ackText);
+  if (target === 'nearby') params = { ...params, location: await lastLocation(env, params.chat_id) };
   const fireResult = await triggerRoutine(env, target, params);
   if (env.UPDATE_CACHE && fireResult.status === 200) {
     const at = Date.now();
@@ -607,6 +652,52 @@ function apifyAlertText(credit, level) {
 }
 
 // dryRun — только посчитать и показать текст (для /admin/apify), без отправки и отметки в KV.
+// Разовые напоминания в чат — тем же ежедневным cron (09:00 МСК), каждое один раз.
+const REMINDERS = [
+  {
+    id: '2gis-demo-2026-11',
+    date: '2026-11-10',
+    text:
+      '⏰ 13 ноября кончается бесплатный демо-ключ 2ГИС (выдан 14 октября на 30 дней).\n' +
+      'Без него перестанут работать 📍 Рядом и «🚇 метро рядом» в 🏡 Жилье.\n' +
+      'Варианты: 1) платный тариф 2ГИС; 2) бесплатные карты OpenStreetMap — без рейтингов и часов работы; ' +
+      '3) отключить 2ГИС. Напиши Claude, что выбираем.'
+  }
+];
+
+async function sendReminders(env, today = new Date().toISOString().slice(0, 10)) {
+  const sent = [];
+  for (const reminder of REMINDERS) {
+    if (reminder.date !== today) continue;
+    const key = `reminder:${reminder.id}`;
+    if (env.UPDATE_CACHE && (await env.UPDATE_CACHE.get(key))) continue;
+    await sendTelegramMessage(env, { chatId: env.ALERT_CHAT_ID || ALERT_CHAT_ID, text: reminder.text });
+    if (env.UPDATE_CACHE) await env.UPDATE_CACHE.put(key, '1', { expirationTtl: 30 * 86400 });
+    sent.push(reminder.id);
+  }
+  return sent;
+}
+
+// Ключ 2ГИС: раз в день пробный запрос к каталогу. Перестал работать (кончился демо, лимит) —
+// одно предупреждение в чат, повтор не чаще раза в 3 дня.
+async function check2gisKey(env, { dryRun = false } = {}) {
+  if (!env.DGIS_API_KEY) return { ok: false, error: 'no DGIS_API_KEY' };
+  const resp = await fetch(
+    `https://catalog.api.2gis.com/3.0/items?q=${encodeURIComponent('кафе')}&point=37.6173,55.7558&radius=500&page_size=1&key=${env.DGIS_API_KEY}`
+  );
+  const data = await resp.json().catch(() => ({}));
+  const code = data.meta && data.meta.code;
+  if (code === 200) return { ok: true, code };
+  const text =
+    `⛔ Ключ 2ГИС не работает (код ${code || resp.status}${data.meta && data.meta.error ? ': ' + data.meta.error.message : ''}).\n` +
+    '📍 Рядом и «метро рядом» в 🏡 Жилье сейчас без карт. Напиши Claude — продлим ключ или переключимся на OpenStreetMap.';
+  if (dryRun) return { ok: false, code, alert: text };
+  if (env.UPDATE_CACHE && (await env.UPDATE_CACHE.get('alert:2gis-key'))) return { ok: false, code, alert: 'already sent' };
+  await sendTelegramMessage(env, { chatId: env.ALERT_CHAT_ID || ALERT_CHAT_ID, text });
+  if (env.UPDATE_CACHE) await env.UPDATE_CACHE.put('alert:2gis-key', '1', { expirationTtl: 3 * 86400 });
+  return { ok: false, code, alert: text, sent: true };
+}
+
 async function checkApifyCredit(env, { dryRun = false } = {}) {
   if (!env.APIFY_TOKEN) return { ok: false, error: 'no APIFY_TOKEN' };
   const credit = await apifyCredit(env);
@@ -644,6 +735,9 @@ async function handleAdmin(env, action, body) {
     }
     return { ok: true, paused };
   }
+  // 2gis — проверить ключ 2ГИС без отправки; reminders {date} — что ушло бы в этот день (без отправки).
+  if (action === '2gis') return check2gisKey(env, { dryRun: true });
+  if (action === 'reminders') return { ok: true, due: REMINDERS.filter((r) => r.date === (body.date || new Date().toISOString().slice(0, 10))) };
   // apify {send?} — расход кредита Apify и текст предупреждения; send: true — отправить как по расписанию.
   if (action === 'apify') return checkApifyCredit(env, { dryRun: body.send !== true });
   // route {text} — как слушатель разобрал бы текст (слова, затем модель), без запуска агентов.
@@ -810,6 +904,24 @@ export default {
     }
 
     const isDebug = new URL(request.url).searchParams.get('debug') === '1';
+
+    // Геопозиция (или место из Telegram) — запоминаем для агента «Рядом» на 3 часа.
+    const point = message.location || (message.venue && message.venue.location);
+    if (point && env.UPDATE_CACHE) {
+      await env.UPDATE_CACHE.put(`loc:${message.chat.id}`, `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`, {
+        expirationTtl: LOCATION_TTL_S
+      });
+      const saved = sendTelegramMessage(env, {
+        chatId: message.chat.id,
+        text: '📍 Запомнил, где ты — на 3 часа. Спроси, что найти рядом: «кофейня рядом», «где пообедать», «аптека поблизости».',
+        replyToMessageId: message.message_id,
+        businessConnectionId: update.business_message ? (message.business_connection_id || '') : ''
+      });
+      if (isDebug) await saved;
+      else ctx.waitUntil(saved);
+      return json({ ok: true, location: true });
+    }
+
     const candidate = extractCandidate(message);
 
     // Голосовое: target неизвестен до транскрипции, поэтому отдельная
@@ -894,6 +1006,6 @@ export default {
 
   // Cron Triggers (Settings → Triggers): «0 6 * * *» — проверка кредита Apify.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(checkApifyCredit(env));
+    ctx.waitUntil(Promise.allSettled([checkApifyCredit(env), sendReminders(env), check2gisKey(env)]));
   }
 };

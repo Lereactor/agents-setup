@@ -45,6 +45,14 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     trigger: 'по сообщению: «отель», «квартира», «коттедж», «посуточно»',
     description: 'Топ-3 на Суточно, Островке, Авито и Туту + риски и рекомендация',
   },
+  nearby: {
+    id: 'nearby',
+    title: 'Рядом',
+    emoji: '📍',
+    color: '#f06292',
+    trigger: 'по сообщению: «кафе», «аптека», «… рядом», геопозиция',
+    description: 'Места поблизости в 2ГИС: рейтинг, часы работы, сколько идти пешком',
+  },
   'news-digest': {
     id: 'news-digest',
     title: 'Новости',
@@ -65,7 +73,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
   },
 }
 
-export const AGENT_ORDER: AgentId[] = ['shopping', 'grocery', 'travel', 'booking', 'news-digest', 'watchdog']
+export const AGENT_ORDER: AgentId[] = ['shopping', 'grocery', 'travel', 'booking', 'nearby', 'news-digest', 'watchdog']
 
 export function isAgentId(value: string): value is AgentId {
   return value in AGENTS

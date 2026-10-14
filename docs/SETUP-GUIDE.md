@@ -616,6 +616,58 @@ seller-side MCP для управления ценами (не для покуп
    и сообщение «не понял, кому» в голосовых обновлены. PDF-архитектура (стр. 1–4) и одностраничник
    показывают маршрутизатор (маркер «Workers AI» = Whisper + «кому это?»).
 
+## 6.15 MCP на своём VPS: 2ГИС и Aviasales; агент «Рядом» (2026-10-14)
+
+**VPS** 193.233.84.69 (Ubuntu 24.04, 1 CPU / 1 ГБ / ~0,5 ГБ свободно). SSH:
+`ssh -i ~/.ssh/vtb_monitor_ed25519 -o UserKnownHostsFile=<путь к known_hosts> root@193.233.84.69`
+(в Git Bash ssh ищет known_hosts не там — путь указывать явно; ufw LIMIT на 22 — частые
+подключения подряд временно режутся).
+
+1. Установлено: Node.js 22 (архив nodejs.org → `/opt/node`, ссылки в `/usr/local/bin`), Caddy
+   (apt-репозиторий Cloudsmith). Пользователь `mcp` без шелла, всё в `/opt/mcp`:
+   - `2gis` — официальный `github.com/2gis/2gis-mcp` (проприетарная лицензия 2ГИС, только stdio):
+     `npm ci && npm run build && npm prune --omit=dev`; ключи `MAPGL_API_KEY`, `ROUTING_API_KEY`
+     (один и тот же демо-ключ) в `/etc/mcp/2gis.env`;
+   - `avia` — `@theyahia/travelpayouts-mcp@2.0.1` (MIT, stdio). Обычный `npm install` падает
+     (лишний vitest в dependencies) — ставится `npm pack` + распаковка + `npm install --omit=dev`
+     с двумя зависимостями. **Локальный патч** (бэкап `*.js.orig`): `/aviasales/v3/calendar` и
+     `/aviasales/v3/autocomplete` у Travelpayouts не существуют (404) → `grouped_prices?group_by=
+     departure_at` и `autocomplete.travelpayouts.com/places2`. Скрипт патча — повторить при
+     переустановке. Токен `TRAVELPAYOUTS_TOKEN` в `/etc/mcp/avia.env`;
+   - `gw` — `supergateway@4.1.0`: stdio → Streamable HTTP, `--stateful --sessionTimeout 300000`.
+2. systemd: `mcp-2gis` (порт 8101), `mcp-avia` (8102), `MemoryMax=300M`, `ProtectSystem=strict`.
+   `systemctl status mcp-2gis mcp-avia`, логи — `journalctl -u mcp-2gis`.
+3. Caddy: `193-233-84-69.sslip.io` (Let's Encrypt сам), пути `/<MCP_PATH_SECRET>/2gis/*` и
+   `/<MCP_PATH_SECRET>/avia/*` → порты; всё прочее — 404. Секрет пути — `MCP_PATH_SECRET` в
+   `cf_api.txt` (это и есть защита коннекторов — адреса никому не показывать). ufw: 80, 443.
+4. Ключи: 2ГИС — platform.2gis.ru, **демо-ключ на 30 дней (выдан 14.10, до 13.11)**;
+   Travelpayouts — регистрация с «проектом» (бот/сайт), токен в «Разработчикам API».
+   В `cf_api.txt`: `DGIS_API_KEY`, `TRAVELPAYOUTS_TOKEN`.
+5. Коннекторы claude.ai: `2GIS` (uuid c7f48425-…) и `Aviasales` (uuid 86821644-…) — URL
+   `https://193-233-84-69.sslip.io/<секрет>/{2gis|avia}/mcp`, без авторизации.
+6. Агенты:
+   - **Nearby** (`trig_01UJUCCTwvNCtuB4x5BT9aTH`, промпт `routine-prompts/7-nearby.txt`,
+     ключ 2ГИС в промпте вместо `__DGIS_API_KEY__`): 2GIS — search_poi, geocode,
+     reverse_geocode, calculate_route; рейтинг/отзывы/часы — прямой запрос
+     `catalog.api.2gis.com/3.0/items/byid` (MCP отдаёт только название/адрес/рубрики).
+     Тест 14.10: «кофейня рядом с метро Чистые пруды» → топ-5 с рейтингом и минутами пешком, 69 с.
+   - **Travel**: + Aviasales (get_calendar_prices, get_cheapest_month, search_flights_prices,
+     lookup_cities, lookup_airports) — строка «📉 дешевле всего {дата}», выбор даты по календарю.
+   - **Booking**: + 2GIS (geocode, search_poi, calculate_route) — «🚇 станция — N мин пешком»,
+     отсев по «у метро / в центре».
+   - **Guard**: nearby — агент «по событию» («включи рядом»).
+7. Слушатель: слова «Рядом» — места (кафе, ресторан, кофейня, аптека, банкомат, заправка, бар,
+   музей, поесть/пообедать, столик) сильнее жилья и покупок; близость («рядом», «поблизости»,
+   «ближайший») — только без слов других агентов. Геопозиция/место в чате → KV `loc:<chat>` на
+   3 часа → поле `location` в запуске «Рядом». Секреты `ROUTINE_TRIGGER_URL_NEARBY`,
+   `ROUTINE_TRIGGER_TOKEN_NEARBY`, `DGIS_API_KEY`.
+8. Ежедневный cron слушателя (09:00 МСК) дополнительно: разовые напоминания (`REMINDERS`;
+   10.11 — «13 ноября кончается демо-ключ 2ГИС») и проверка ключа 2ГИС (не работает — одно
+   предупреждение в чат, повтор не чаще раза в 3 дня). Проверка без отправки:
+   `POST /admin/2gis`, `POST /admin/reminders {"date":"2026-11-10"}`.
+9. Сайт и презентации: карточка «Рядом» (карта с булавкой), PDF — 7 агентов, источник
+   «2ГИС · Aviasales MCP (VPS)».
+
 ## 7. AI Agent Live Visualization (отдельная локальная демка, не Telegram)
 
 Полный дизайн — `docs/plans/2026-08-26-ai-agent-visualization-design.md`,
