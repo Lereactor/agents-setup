@@ -27,9 +27,6 @@
 //   WATCHDOG_ADMIN_TOKEN           — ключ надзирателя для /admin/* (пауза агента,
 //                                    повтор зависшего запроса, статус)
 //   APIFY_TOKEN                    — для ежедневной проверки кредита Apify (cron)
-//   TTS_KEY                        — ключ, с которым ПК с синтезом голоса подключается к /tts-connect
-//
-// Durable Object TTS_HUB (класс TtsHub, миграция v1) — хаб WebSocket-подключения ПК с синтезом голоса.
 //
 // Bindings — Settings → Bindings:
 //   AI  — Workers AI binding (Whisper для голосовых + ИИ-маршрутизатор для текста без слов агентов),
@@ -406,29 +403,11 @@ function planAck(plan) {
   );
 }
 
-// То же «Принял», но для озвучки: без эмодзи, скобок и списка площадок.
-const AGENT_SPOKEN = { grocery: 'Продукты', travel: 'Поездки', booking: 'Жильё', shopping: 'Покупки' };
-const AGENT_SPOKEN_TO = { grocery: 'продуктов', travel: 'поездок', booking: 'жилья', shopping: 'покупок' };
-
-function planSpeech(plan, ackPrefix = '') {
-  const intro = ackPrefix.includes('🧠') ? 'Слов агента не нашёл, понял по смыслу. ' : '';
-  if (plan.length === 1) return `${intro}Принял. Передал агенту ${AGENT_SPOKEN_TO[plan[0].target]}.`;
-  const short = (text) => {
-    const clean = text.replace(/[.!?;…]+$/, '').trim();
-    return clean.length > 70 ? clean.slice(0, 70).replace(/\s+\S*$/, '') + '…' : clean;
-  };
-  return (
-    `${intro}Принял. Разобрал на ${plan.length} задачи. ` +
-    plan.map((item) => `${AGENT_SPOKEN[item.target]}: ${short(item.shown)}.`).join(' ')
-  );
-}
-
 // Запуск по плану: одно общее «Принял», затем агенты параллельно (пауза — у каждого своя).
 async function dispatchPlan(env, plan, baseParams, ackPrefix = '', recordExtra = {}) {
-  await say(env, {
+  await sendTelegramMessage(env, {
     chatId: baseParams.chat_id,
     text: ackPrefix + planAck(plan),
-    speech: planSpeech(plan, ackPrefix),
     replyToMessageId: baseParams.message_id,
     businessConnectionId: baseParams.business_connection_id
   });
@@ -518,139 +497,6 @@ async function transcribeVoice(env, fileId) {
   }
 
   return ((result && result.text) || '').trim();
-}
-
-// Озвучка вашим голосом — только «Принял/Разобрал» и отчёт надзирателя. Синтез идёт на ПК Льва
-// (voice/tts_server.py, F5-TTS). Входящий туннель до ПК провайдер режет, поэтому наоборот: ПК сам
-// держит WebSocket к /tts-connect, его принимает хаб TtsHub (Durable Object) и по нему же отдаёт
-// фразы на озвучку. ПК выключен, молчит дольше 14 с или ошибся — обычный текст.
-const CAPTION_LIMIT = 1024;
-
-function ttsHub(env) {
-  return env.TTS_HUB.get(env.TTS_HUB.idFromName('pc'));
-}
-
-async function synthesize(env, speech) {
-  const resp = await ttsHub(env).fetch('https://hub/tts', {
-    method: 'POST',
-    body: JSON.stringify({ text: speech }),
-    signal: AbortSignal.timeout(16000)
-  });
-  if (!resp.ok) throw new Error('pc tts ' + resp.status + ' ' + (await resp.text()));
-  return resp.arrayBuffer();
-}
-
-function base64ToBytes(b64) {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-// Один ПК — один WebSocket (новое подключение вытесняет старое). Hibernation API: пока
-// фраз нет, объект спит и не тратит лимиты; «ping» от ПК отвечается «pong» без пробуждения.
-export class TtsHub {
-  constructor(state) {
-    this.state = state;
-    this.pending = new Map();
-    state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
-  }
-
-  async fetch(request) {
-    const path = new URL(request.url).pathname;
-    const sockets = this.state.getWebSockets();
-    if (path === '/connect') {
-      for (const old of sockets) {
-        try {
-          old.close(1000, 'replaced');
-        } catch (err) {
-          // уже закрыт
-        }
-      }
-      const pair = new WebSocketPair();
-      this.state.acceptWebSocket(pair[1]);
-      return new Response(null, { status: 101, webSocket: pair[0] });
-    }
-    if (path === '/status') return Response.json({ connected: sockets.length });
-    if (path === '/tts') {
-      const ws = sockets[sockets.length - 1];
-      if (!ws) return new Response('pc offline', { status: 503 });
-      const { text } = await request.json();
-      const id = crypto.randomUUID();
-      const audio = new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          this.pending.delete(id);
-          reject(new Error('timeout'));
-        }, 14000);
-        this.pending.set(id, (bytes) => {
-          clearTimeout(timer);
-          resolve(bytes);
-        });
-      });
-      ws.send(JSON.stringify({ id, text }));
-      try {
-        return new Response(await audio, { headers: { 'Content-Type': 'audio/ogg' } });
-      } catch (err) {
-        return new Response('pc timeout', { status: 504 });
-      }
-    }
-    return new Response('not found', { status: 404 });
-  }
-
-  webSocketMessage(ws, message) {
-    if (typeof message !== 'string') return;
-    let data;
-    try {
-      data = JSON.parse(message);
-    } catch (err) {
-      return;
-    }
-    const done = this.pending.get(data.id);
-    if (!done) return;
-    this.pending.delete(data.id);
-    if (data.audio) done(base64ToBytes(data.audio));
-  }
-
-  webSocketClose(ws, code) {
-    try {
-      ws.close(code, 'bye');
-    } catch (err) {
-      // уже закрыт
-    }
-  }
-}
-
-async function sendVoice(env, { chatId, audio, caption, replyToMessageId, businessConnectionId }) {
-  const form = new FormData();
-  form.append('chat_id', String(chatId));
-  form.append('voice', new Blob([audio], { type: 'audio/ogg' }), 'voice.ogg');
-  if (caption) form.append('caption', caption);
-  if (replyToMessageId) form.append('reply_to_message_id', String(replyToMessageId));
-  if (businessConnectionId) form.append('business_connection_id', businessConnectionId);
-  const resp = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendVoice`, { method: 'POST', body: form });
-  const data = await resp.json();
-  if (!data.ok) throw new Error('sendVoice: ' + data.description);
-}
-
-function voiceEnabled(env) {
-  return Boolean(env.TTS_KEY && env.TTS_HUB);
-}
-
-// Голосовое с подписью-текстом; длинный текст — голосовое + отдельное сообщение. → {voice: bool}
-async function say(env, { chatId, text, speech, replyToMessageId, businessConnectionId }) {
-  if (voiceEnabled(env) && speech) {
-    try {
-      const audio = await synthesize(env, speech);
-      const fits = text.length <= CAPTION_LIMIT;
-      await sendVoice(env, { chatId, audio, caption: fits ? text : '', replyToMessageId, businessConnectionId });
-      if (!fits) await sendTelegramMessage(env, { chatId, text, replyToMessageId, businessConnectionId });
-      return { voice: true };
-    } catch (err) {
-      console.log('voice failed, sending text', String(err));
-    }
-  }
-  await sendTelegramMessage(env, { chatId, text, replyToMessageId, businessConnectionId });
-  return { voice: false };
 }
 
 async function sendTelegramMessage(env, { chatId, text, replyToMessageId, businessConnectionId }) {
@@ -798,36 +644,6 @@ async function handleAdmin(env, action, body) {
     }
     return { ok: true, paused };
   }
-  // tts-status — подключён ли ПК; tts-file — скачать голосовое из чата (последнее присланное
-  // или по file_id) как образец голоса для ПК.
-  if (action === 'tts-status') return { ok: true, ...(await (await ttsHub(env).fetch('https://hub/status')).json()) };
-  if (action === 'tts-test') {
-    const started = Date.now();
-    const audio = await synthesize(env, String(body.text || 'Принял. Передал агенту поездок.'));
-    return { ok: true, bytes: audio.byteLength, ms: Date.now() - started };
-  }
-  if (action === 'tts-file') {
-    let fileId = body.file_id;
-    if (!fileId) {
-      const raw = JSON.parse((await env.UPDATE_CACHE.get('debug:last_raw')) || '{}');
-      const msg = raw.message || raw.business_message || {};
-      fileId = (msg.voice || msg.audio || {}).file_id;
-    }
-    if (!fileId) return { ok: false, error: 'no voice in last update' };
-    const info = await (await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`)).json();
-    if (!info.ok) return { ok: false, error: info.description };
-    const bytes = new Uint8Array(await (await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${info.result.file_path}`)).arrayBuffer());
-    return { ok: true, file_id: fileId, base64: bytesToBase64(bytes) };
-  }
-  // say {text, speech, chat_id?, dry?} — отчёт надзирателя: голосом (если настроен) с подписью-текстом.
-  if (action === 'say') {
-    const text = String(body.text || '').trim();
-    if (!text) return { ok: false, error: 'empty text' };
-    const speech = String(body.speech || '').trim();
-    if (body.dry) return { ok: true, dry: true, voice_enabled: voiceEnabled(env), speech, text_length: text.length };
-    const result = await say(env, { chatId: body.chat_id || env.ALERT_CHAT_ID || ALERT_CHAT_ID, text, speech });
-    return { ok: true, ...result };
-  }
   // apify {send?} — расход кредита Apify и текст предупреждения; send: true — отправить как по расписанию.
   if (action === 'apify') return checkApifyCredit(env, { dryRun: body.send !== true });
   // route {text} — как слушатель разобрал бы текст (слова, затем модель), без запуска агентов.
@@ -939,12 +755,6 @@ async function processVoiceMessage(env, message, update, candidate) {
 
 export default {
   async fetch(request, env, ctx) {
-    // ПК с синтезом голоса подключается сюда сам (WebSocket) — см. TtsHub.
-    if (new URL(request.url).pathname === '/tts-connect') {
-      if (!env.TTS_KEY || request.headers.get('X-Key') !== env.TTS_KEY) return new Response('forbidden', { status: 403 });
-      if (request.headers.get('Upgrade') !== 'websocket') return new Response('websocket only', { status: 426 });
-      return ttsHub(env).fetch('https://hub/connect', request);
-    }
     if (request.method === 'GET' && new URL(request.url).searchParams.get('debug') === '1') {
       const last = env.UPDATE_CACHE ? await env.UPDATE_CACHE.get('debug:last_raw') : null;
       return json({ last_raw_update: last ? JSON.parse(last) : null });
@@ -954,7 +764,7 @@ export default {
       return new Response('ok', { status: 200 });
     }
 
-    const adminMatch = new URL(request.url).pathname.match(/^\/admin\/([\w-]+)$/);
+    const adminMatch = new URL(request.url).pathname.match(/^\/admin\/(\w+)$/);
     if (adminMatch) {
       const auth = request.headers.get('Authorization') || '';
       if (!env.WATCHDOG_ADMIN_TOKEN || auth !== 'Bearer ' + env.WATCHDOG_ADMIN_TOKEN) {
