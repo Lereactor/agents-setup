@@ -314,7 +314,7 @@ function planDispatch(text) {
   const agents = AGENT_ORDER.filter((agent) => firstIndex(agent) >= 0).sort((a, b) => firstIndex(a) - firstIndex(b));
   if (agents.length <= 1) {
     const target = detectTarget(text);
-    return target ? [{ target, text, shown: text }] : [];
+    return target ? [{ target, text, core: text, shown: text }] : [];
   }
   const lastTargeted = sentences.map((item) => item.targets.length > 0).lastIndexOf(true);
   return agents.map((agent) => {
@@ -324,12 +324,23 @@ function planDispatch(text) {
         item.targets.includes(agent) ||
         (!item.targets.length && (i < lastOwn || (i > lastTargeted && sentences[lastTargeted].targets.includes(agent))))
     );
+    const core = keep.map((item) => item.sentence).join(' ');
     return {
       target: agent,
-      text: keep.map((item) => item.sentence).join(' ') + agentNote(agent, agents, text),
+      text: core + agentNote(agent, agents, text),
+      core,
       shown: keep.filter((item) => item.targets.includes(agent)).map((item) => item.sentence).join(' ')
     };
   });
+}
+
+// Части сообщения, где слов агентов нет, но похоже на просьбу: «Я хочу поехать завтра в Иркутск.
+// Сними там отель. А на сегодня придумай ужин» — по словам нашлось только жильё.
+function untargetedParts(text) {
+  return splitSentences(text)
+    .flatMap(splitChunks)
+    .filter((item) => !item.targets.length && aiRouterEligible(item.sentence))
+    .map((item) => item.sentence);
 }
 
 function agentNote(agent, agents, text) {
@@ -424,16 +435,44 @@ async function aiRoute(env, text) {
     return { plan: [], reason: 'ai error: ' + String(err) };
   }
   const tasks = parseRouterTasks(raw);
-  if (!tasks.length) return { plan: [], reason: 'not a task', raw };
+  if (!tasks.length) return { plan: [], tasks, reason: 'not a task', raw };
   const agents = tasks.map((task) => task.agent);
   const plan =
     tasks.length === 1
       ? [{ target: tasks[0].agent, text, shown: text }]
       : tasks.map((task) => ({ target: task.agent, text: task.text + agentNote(task.agent, agents, text), shown: task.text }));
-  return { plan, reason: 'ai', raw };
+  return { plan, tasks, reason: 'ai', raw };
 }
 
 const AI_ROUTER_ACK = '🧠 Слов агента не нашёл — понял по смыслу.\n';
+const AI_ROUTER_MIXED_ACK = '🧠 Часть задач понял по смыслу.\n';
+
+// Полный разбор: сначала слова; ничего не нашли — модель; нашли, но остались части без агента,
+// похожие на просьбу, — модель смотрит всё сообщение, и её агенты добавляются к найденным по
+// словам (найденные по словам не трогаем). → {plan, router: null|'ai'|'mixed', ack, reason}
+async function routeText(env, text) {
+  const plan = planDispatch(text);
+  if (!plan.length) {
+    const ai = await aiRoute(env, text);
+    return { plan: ai.plan, router: ai.plan.length ? 'ai' : null, ack: AI_ROUTER_ACK, reason: ai.reason };
+  }
+  if (!env.AI || !untargetedParts(text).length) return { plan, router: null, ack: '' };
+  const ai = await aiRoute(env, text);
+  const tasks = ai.tasks || [];
+  const extra = tasks.filter((task) => !plan.some((item) => item.target === task.agent));
+  if (!extra.length) return { plan, router: null, ack: '', reason: ai.reason };
+  const agents = [...plan.map((item) => item.target), ...extra.map((task) => task.agent)];
+  // Один агент по словам получил всё сообщение целиком — берём его часть из ответа модели.
+  const aiPart = (agent) => plan.length === 1 && (tasks.find((task) => task.agent === agent) || {}).text;
+  const merged = [
+    ...plan.map((item) => {
+      const core = aiPart(item.target) || item.core;
+      return { target: item.target, core, shown: aiPart(item.target) || item.shown };
+    }),
+    ...extra.map((task) => ({ target: task.agent, core: task.text, shown: task.text }))
+  ].map((item) => ({ target: item.target, text: item.core + agentNote(item.target, agents, text), shown: item.shown }));
+  return { plan: merged, router: 'mixed', ack: AI_ROUTER_MIXED_ACK, reason: ai.reason };
+}
 
 function planAck(plan) {
   if (plan.length === 1) return `✅ Взял в работу: ${AGENT_LABELS[plan[0].target]}`;
@@ -454,13 +493,12 @@ async function dispatchPlan(env, plan, baseParams, ackPrefix = '', recordExtra =
   return Promise.all(plan.map((item) => dispatch(env, item.target, { ...baseParams, text: item.text }, null, recordExtra)));
 }
 
-// Текст без слов агентов: спросить модель и, если это задача, запустить по её плану.
-// Не задача — молчим, как и раньше.
-async function aiRouteAndDispatch(env, text, params) {
-  const routed = await aiRoute(env, text);
+// Разобрать текст (routeText) и запустить агентов. Не задача — молчим, как и раньше.
+async function routeAndDispatch(env, text, params) {
+  const routed = await routeText(env, text);
   if (!routed.plan.length) return { ok: true, skipped: 'no trigger word', ai_router: routed.reason };
-  const results = await dispatchPlan(env, routed.plan, params, AI_ROUTER_ACK, { router: 'ai' });
-  return { ok: true, triggered: true, ai_router: 'ai', targets: routed.plan.map((item) => item.target), results };
+  const results = await dispatchPlan(env, routed.plan, params, routed.ack, routed.router ? { router: routed.router } : {});
+  return { ok: true, triggered: true, router: routed.router, targets: routed.plan.map((item) => item.target), results };
 }
 
 function largestPhotoFileId(photoArray) {
@@ -746,8 +784,15 @@ async function handleAdmin(env, action, body) {
   if (action === 'route') {
     const text = String(body.text || '');
     const keywords = planDispatch(text);
-    const ai = keywords.length ? null : await aiRoute(env, text);
-    return { ok: true, keywords: keywords.map((item) => item.target), ai };
+    const routed = await routeText(env, text);
+    return {
+      ok: true,
+      keywords: keywords.map((item) => item.target),
+      untargeted: untargetedParts(text),
+      router: routed.router,
+      reason: routed.reason,
+      plan: routed.plan.map((item) => ({ target: item.target, shown: item.shown }))
+    };
   }
   if (!AGENT_LABELS[agent]) return { ok: false, error: 'unknown agent' };
 
@@ -814,14 +859,10 @@ async function processVoiceMessage(env, message, update, candidate) {
     return { ok: true, help: true, transcript };
   }
 
-  let plan = planDispatch(transcript);
-  let ackPrefix = `🎙️ Понял: "${transcript}"\n`;
-  let recordExtra = {};
-  if (!plan.length) {
-    plan = (await aiRoute(env, transcript)).plan;
-    ackPrefix += AI_ROUTER_ACK;
-    recordExtra = { router: 'ai' };
-  }
+  const routed = await routeText(env, transcript);
+  const plan = routed.plan;
+  const ackPrefix = `🎙️ Понял: "${transcript}"\n` + routed.ack;
+  const recordExtra = routed.router ? { router: routed.router } : {};
   if (!plan.length) {
     await notify(
       `🎙️ Понял: "${transcript}" — но не понял, кому это адресовано ` +
@@ -973,37 +1014,18 @@ export default {
     };
 
     const plan = planDispatch(candidate.text);
-    if (!plan.length) {
-      if (!env.AI || !aiRouterEligible(candidate.text)) return json({ ok: true, skipped: 'no trigger word' });
-      // Модель отвечает 1–3 с — Telegram получает 200 сразу, решение и запуск — в фоне.
-      if (isDebug) return json(await aiRouteAndDispatch(env, candidate.text, params));
-      ctx.waitUntil(aiRouteAndDispatch(env, candidate.text, params));
-      return json({ ok: true, processing: 'ai-router' });
-    }
-    const target = plan[0].target;
-    const targets = plan.map((item) => item.target);
+    if (!plan.length && (!env.AI || !aiRouterEligible(candidate.text))) return json({ ok: true, skipped: 'no trigger word' });
 
-    // Диагностический режим (?debug=1): дожидаемся ответа fire и возвращаем
-    // его в теле — удобно для ручной проверки через curl. В обычной работе
-    // (реальные апдейты от Telegram) этот параметр не передаётся, и
-    // используется быстрый путь ниже.
-    if (isDebug) {
-      const results = await dispatchPlan(env, plan, params);
-      return json({ ok: true, triggered: !results[0].paused, target, targets, ...results[0], results });
-    }
+    // Диагностический режим (?debug=1): дожидаемся разбора и ответа fire и возвращаем
+    // их в теле — удобно для ручной проверки через curl.
+    if (isDebug) return json(await routeAndDispatch(env, candidate.text, params));
 
-    // Отвечаем Telegram сразу (200), а сам ack + fire-вызов (может занимать
-    // много секунд) выполняются в фоне через waitUntil — именно это убирает
-    // первопричину повторных доставок, а не только дедуп. ack отправляется
-    // ДО triggerRoutine внутри одного waitUntil, чтобы он гарантированно
-    // пришёл раньше ответа агента, а не вперемешку с ним.
-    ctx.waitUntil(
-      (async () => {
-        await dispatchPlan(env, plan, params);
-      })()
-    );
-
-    return json({ ok: true, triggered: true, target, targets });
+    // Отвечаем Telegram сразу (200), а разбор (модель — 1–3 с), ack и fire-вызов
+    // выполняются в фоне через waitUntil — именно это убирает первопричину
+    // повторных доставок, а не только дедуп. ack отправляется ДО triggerRoutine,
+    // чтобы он гарантированно пришёл раньше ответа агента.
+    ctx.waitUntil(routeAndDispatch(env, candidate.text, params));
+    return json({ ok: true, processing: true, targets: plan.map((item) => item.target) });
   },
 
   // Cron Triggers (Settings → Triggers): «0 6 * * *» — проверка кредита Apify.
