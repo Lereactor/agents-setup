@@ -845,3 +845,39 @@ Apify; 3) кто и когда обращается к AI + разбор реа�
 ≈−60 % токенов, ≈−70 % времени), таблица критериев, вывод и следующие шаги.
 Пересобрать: `python docs/source/architecture.py "docs/Архитектура-ассистентов.pdf"`.
 
+
+## 9. Переезд на другой аккаунт Claude (2026-11-03)
+
+Routines, их окружение, коннекторы claude.ai и API-токены запуска живут **в аккаунте
+Claude**. При смене аккаунта (`/login` на другой) агенты молча перестают отвечать:
+Telegram-вебхук и воркер работают, но `fire` уходит в Routines старого аккаунта.
+Не зависят от аккаунта: бот, воркер Cloudflare (KV, Workers AI), лог в Google Sheets,
+VPS с 2ГИС/Aviasales, Apify, сайт на GitHub Pages.
+
+Как диагностировать: `RemoteTrigger list` в новом аккаунте пустой, `get` старого id → 404.
+
+Как восстановить (так сделано 2026-11-03):
+1. **Промпты.** Самые свежие живые версии (с ключами) — в истории прошлых сессий Claude
+   Code (`~/.claude/projects/C--Claude-Agents/*.jsonl`, ответы `RemoteTrigger get/list`);
+   локальные `routine-prompts/*.txt` — с заглушками `__…__`.
+2. **Routines** — через `RemoteTrigger create`, `environment_id: "default"` (создавать
+   окружение в интерфейсе не нужно). Переменных окружения в новом аккаунте нет, поэтому
+   `TELEGRAM_BOT_TOKEN`, `SHEETS_LOG_URL`, `SHEETS_LOG_TOKEN` подставлены прямо в промпты.
+   Расписания: News `0 5 * * *`, Guard `0 0,6,12,18 * * *`. Новые id — в `cf_api.txt`
+   (`NEW_TRIG_*`).
+3. **Коннекторы (вручную).** claude.ai/customize/connectors → **Add custom connector**,
+   названия ровно такие: `Vkusvill` (`https://mcp.vkusvill.ru/mcp`), `Tutu`
+   (`https://mcp.tutu.ru/mcp`), `2GIS` и `Aviasales` (адреса VPS с `MCP_PATH_SECRET`, см. 6.15).
+4. **UUID коннекторов** — создать временную Routine без `mcp_connections`: к ней цепляются
+   все коннекторы аккаунта (так появилась `zz-probe (можно удалить)`, выключена). Затем
+   `RemoteTrigger update` каждой Routine с её `mcp_connections` + `permitted_tools`
+   (списки — как в 6.6, 6.9, 6.12, 6.15).
+5. **API-токены (вручную).** claude.ai/code/routines → Routine → **Add trigger** → **API** →
+   скопировать токен (показывается один раз) → в `cf_api.txt` (`Shopping-token=…` и т.д.).
+6. **Воркер.** Секреты `ROUTINE_TRIGGER_URL_*` / `ROUTINE_TRIGGER_TOKEN_*` — через
+   `PUT …/workers/scripts/shopping-listener/secrets`. Исключение: `ROUTINE_TRIGGER_URL`
+   (покупки) — это `plain_text`-привязка, `/secrets` отвечает «Binding name already in use»;
+   меняется через `PATCH …/settings` (multipart `settings`), где остальные секреты
+   передаются как `{"type":"inherit","name":…}`, а AI и KV — как есть из `GET …/settings`.
+7. **Проверка** — фраза каждому агенту в группе (см. 6.4, 6.6, 6.9, 6.12, 6.15) и
+   `RemoteTrigger list_runs` по каждой Routine.
