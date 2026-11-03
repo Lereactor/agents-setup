@@ -860,8 +860,8 @@ VPS с 2ГИС/Aviasales, Apify, сайт на GitHub Pages.
 1. **Промпты.** Самые свежие живые версии (с ключами) — в истории прошлых сессий Claude
    Code (`~/.claude/projects/C--Claude-Agents/*.jsonl`, ответы `RemoteTrigger get/list`);
    локальные `routine-prompts/*.txt` — с заглушками `__…__`.
-2. **Routines** — через `RemoteTrigger create`, `environment_id: "default"` (создавать
-   окружение в интерфейсе не нужно). Переменных окружения в новом аккаунте нет, поэтому
+2. **Routines** — через `RemoteTrigger create` с **настоящим** `environment_id` (`env_…`,
+   см. 9.1 — `"default"` НЕ работает). Переменных окружения в новом аккаунте нет, поэтому
    `TELEGRAM_BOT_TOKEN`, `SHEETS_LOG_URL`, `SHEETS_LOG_TOKEN` подставлены прямо в промпты.
    Расписания: News `0 5 * * *`, Guard `0 0,6,12,18 * * *`. Новые id — в `cf_api.txt`
    (`NEW_TRIG_*`).
@@ -880,4 +880,34 @@ VPS с 2ГИС/Aviasales, Apify, сайт на GitHub Pages.
    меняется через `PATCH …/settings` (multipart `settings`), где остальные секреты
    передаются как `{"type":"inherit","name":…}`, а AI и KV — как есть из `GET …/settings`.
 7. **Проверка** — фраза каждому агенту в группе (см. 6.4, 6.6, 6.9, 6.12, 6.15) и
-   `RemoteTrigger list_runs` по каждой Routine.
+   `RemoteTrigger list_runs` по каждой Routine. Пустой `list_runs` — ещё не «всё ок»:
+   смотри `last_run.failure_reason` в `RemoteTrigger get`.
+
+### 9.1. Инцидент 2026-11-04: агенты молчат после переезда (`environment_id: "default"`)
+
+Симптом: сообщение в группу — ни ответа агента, ни ack; сайт пуст (последняя строка
+лога — 30.10). Telegram-вебхук и воркер в порядке. `?debug=1` на воркере показал ответ
+fire: `400 session_config_rejected`; у всех Routines `last_run.failure_reason =
+ROUTINE_RUN_FAILURE_REASON_CONFIG_REJECTED`, `list_runs` пустой (сессия не создаётся).
+
+Причина: `environment_id: "default"` принимается при `create`, но при запуске не
+разрешается в окружение. Настоящий несуществующий id отклоняется сразу
+(`environment_not_found`), а `"default"` — нет, поэтому ошибка всплыла только на запуске.
+
+Исправление (без интерфейса):
+- Окружения аккаунта: `GET https://api.anthropic.com/v1/environment_providers` с
+  OAuth-токеном Claude Code (`~/.claude/.credentials.json` → `claudeAiOauth.accessToken`),
+  заголовки `anthropic-version: 2023-06-01`, `anthropic-beta: ccr-byoc-2025-07-29`,
+  `x-organization-uuid` (из `~/.claude.json` → `oauthAccount.organizationUuid`).
+- Создано окружение `agents` (`env_013VjF1a8BHdsK1PYRibaYYK`):
+  `POST …/v1/environment_providers/cloud/create`. `network_access: "unrestricted"` API
+  молча игнорирует (остаётся `restricted`), поэтому сеть открыта белым списком
+  `allowed_hosts` (`POST …/v1/environment_providers/{id}`, тело без `kind`):
+  api.telegram.org, script.google.com, script.googleusercontent.com, api.apify.com,
+  sutochno.ru, *.2gis.*, catalog.api.2gis.com, shopping-listener…workers.dev, travelpayouts,
+  sslip-адрес VPS и др. Новый внешний сайт в промпте агента → добавить его хост сюда.
+- Всем 7 Routines `RemoteTrigger update` с **полным** `job_config` (сменён только
+  `ccr.environment_id`). ⚠️ Частичное `{"job_config":{"ccr":{"environment_id":…}}}`
+  **стирает промпт** (events становятся пустыми) — так случилось с News, восстановлено из
+  копии `list`. Перед массовым update всегда сохраняй вывод `RemoteTrigger list`.
+- Проверено: Travel и Booking ответили на «Сочи» в группе, лог пишется, сайт видит строки.
