@@ -74,14 +74,17 @@
    log(status="progress", detail="⚖️ сравниваю {N} вариантов").
 
 4б. Метро и центр — mcp(server="dgis"), только для вариантов, попавших в ответ
-   (до 9 штук с адресом): geocode(«{адрес}, {город}») → search_poi(query="станция
-   метро", center, radius=1500) — ближайшая станция и расстояние (1 км ≈ 12 мин
-   пешком). В городе без метро — calculate_route до центра (geocode «{город},
-   центр»), profile="pedestrian" если ближе 2 км, иначе "taxi". В строку варианта:
+   (до 9 штук с адресом). Координаты везде — объект {lat,lng} (числа), не строка:
+   geocode({query:"{адрес}, {город}"}) → search_poi({query:"станция метро",
+   center:{lat,lng}, radius:1500}) — ближайшая станция и расстояние (1 км ≈ 12 мин
+   пешком). В городе без метро — calculate_route({start:"{город}, центр", end:{lat,lng},
+   profile:"pedestrian"}) если ближе 2 км, иначе profile="taxi". В строку варианта:
    «🚇 {станция} — {N} мин пешком» или «до центра {N} мин {пешком|на такси}».
    Просили «у метро»/«в центре» — отсей варианты дальше 15 мин пешком.
    2ГИС не ответил — пропусти шаг молча.
-   Инструменты dgis: search_poi, geocode, reverse_geocode, calculate_route.
+   Инструменты dgis: search_poi({query, center:{lat,lng}, radius}),
+   geocode({query}), calculate_route({start, end, profile}),
+   reverse_geocode({coordinate:{lat,lng}}).
 
 5. Перед отправкой отметь log(status="progress", detail="✉️ отправляю ответ").
    Отправь через send_reply. Если текст длиннее 4000 символов — раздели на 2

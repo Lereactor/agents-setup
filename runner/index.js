@@ -255,7 +255,7 @@ function buildTools(ctx) {
       type: 'function',
       function: {
         name: 'mcp',
-        description: `Вызов инструмента MCP-сервера. Серверы: vkusvill (продукты), tutu (поезда/авиа/отели), dgis (2ГИС: search_poi, geocode, reverse_geocode, calculate_route), avia (Aviasales/Travelpayouts). Перед первым использованием сервера tutu вызови get_<вид>_instructions.`,
+        description: `Вызов инструмента MCP-сервера. Серверы: vkusvill (продукты), tutu (поезда/авиа/отели), dgis (2ГИС), avia (Aviasales/Travelpayouts). Перед первым использованием сервера tutu вызови get_<вид>_instructions. ВАЖНО: координаты в dgis — объекты {lat, lng} (ЧИСЛА), не строки: search_poi({query, center:{lat,lng}, radius}), calculate_route({start:{lat,lng} или "адрес", end: ..., profile:"pedestrian"|"taxi"|"car"}), geocode({query}), reverse_geocode({coordinate:{lat,lng}}).`,
         parameters: {
           type: 'object',
           properties: {
