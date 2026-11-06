@@ -911,3 +911,105 @@ ROUTINE_RUN_FAILURE_REASON_CONFIG_REJECTED`, `list_runs` пустой (сесс�
   **стирает промпт** (events становятся пустыми) — так случилось с News, восстановлено из
   копии `list`. Перед массовым update всегда сохраняй вывод `RemoteTrigger list`.
 - Проверено: Travel и Booking ответили на «Сочи» в группе, лог пишется, сайт видит строки.
+
+## 10. Полный отказ от Claude: агенты переехали на собственный раннер (Kimi/Moonshot), 2026-11-06
+
+Инцидент 2026-11-04..06: Anthropic отрезал регион (`api.anthropic.com` → 403
+«Request not allowed» даже без авторизации, `claude.ai` → редирект на
+`/app-unavailable-in-region`), облачные Routines перестали выполняться
+(последний запуск — 04.11 09:15 МСК), OAuth-токен не обновляется. Все 7
+Routines, их окружение и коннекторы — недоступны. Решение: мозги агентов
+перенесены с Claude Routines на **собственный раннер** на нашем VPS +
+LLM API Moonshot (Kimi). Региональный блок на Moonshot отсутствует (проверено
+с домашней сети и с VPS: 401 без ключа = endpoint жив).
+
+**Что НЕ изменилось:** Telegram-бот и слушатель (Cloudflare Worker: ключевые
+слова, Whisper, ИИ-маршрутизатор, паузы, KV-дедуп, Apify/2ГИС-cron), лог в
+Google Sheets (и дашборд, и сайт на нём), VPS с MCP 2ГИС/Aviasales, Apify.
+Все они и раньше не зависели от Anthropic.
+
+**Что изменилось:**
+- Вместо 7 Routines — один **раннер** (`runner/index.js`, Node 22 без
+  зависимостей) на VPS: `127.0.0.1:8200`, systemd `agents-runner`, наружу
+  через Caddy `https://193-233-84-69.sslip.io/<AGENTS_PATH_SECRET>/agents/*`
+  (секрет — в `cf_api.txt`).
+- Слушатель вместо `fire` в Anthropic шлёт `POST {agent, ...}` на
+  `RUNNER_URL` с `Authorization: Bearer RUNNER_TOKEN` (секреты воркера
+  `RUNNER_URL`/`RUNNER_TOKEN`; старые `ROUTINE_TRIGGER_*` больше не нужны).
+- Расписание (news 05:00 UTC, watchdog каждые 6 ч) — **cron на VPS**
+  (часовой пояс VPS — Новосибирск UTC+7: news в 12:00, watchdog в
+  1,7,13,19 местного; пометки `# agents-cron` в `crontab -l`).
+- Промпты агентов — `runner/prompts/*.md` (адаптированы под инструменты
+  раннера; секреты подставляются раннером по плейсхолдерам `__…__`).
+- LLM: Moonshot API (`MOONSHOT_BASE_URL`, `MOONSHOT_MODEL`, ключ —
+  `MOONSHOT_API_KEY` в `/etc/agents/runner.env`). Нужен свой ключ:
+  platform.moonshot.ai → API Keys. Это отдельная поминутная оплата
+  (подписка Kimi Code сюда не входит).
+
+**Инструменты, которые видит модель** (реализация в `runner/index.js`):
+- `log(status, detail)` — лог Sheets; RUN_ID/время подставляются
+  автоматически, итоговый log обязателен (раннер дозаписывает сам, если
+  модель забыла);
+- `send_reply(text)` — ответ в чат; **идёт через слушатель**
+  (`POST /admin/runner-tg` с Bearer `RUNNER_TOKEN`), потому что с VPS
+  Telegram API недоступен (датацентр заблокирован Telegram'ом, проверено:
+  таймаут по IPv4 и IPv6). Слушатель — единственный рабочий путь к Telegram;
+- `http(method, url, headers, body)` — Apify, Суточно, каталог 2ГИС,
+  админка слушателя и любые API;
+- `mcp(server, tool, arguments)` — серверы: `vkusvill`, `tutu` (публичные
+  URL), `dgis`/`avia` (localhost:8101/8102 на том же VPS);
+- `web_search(query)` — DuckDuckGo без ключа (html.duckduckgo.com,
+  запасной lite.duckduckgo.com); используется агентом Новостей;
+- `read_log(hours)` — лог Sheets для надзирателя (не сырым HTTP — инструмент
+  сам режет окно и жмёт поля);
+- фото (photo_file_id) раннер скачивает через слушатель и передаёт модели
+  как изображение (Kimi K2 — с vision).
+
+**Деплой/обновление раннера** (код + промпты одним архивом, один SSH-заход —
+ufw режет частые подключения):
+```
+cd <репозиторий>
+tar czf /tmp/agents.tgz -C runner .
+scp через base64 в один ssh: распаковать в /opt/agents, затем
+systemctl restart agents-runner
+```
+Полный пример — в истории коммита 2026-11-06 (скрипт из base64-архива:
+env → /etc/agents/runner.env (chmod 600), unit → /etc/systemd/system,
+Caddyfile — полная перезапись известным содержимым + reload).
+Логи: `journalctl -u agents-runner -f`. Health: `curl 127.0.0.1:8200/health`.
+
+**Ключ Moonshot (единственное, что нужно вручную):**
+1. platform.moonshot.ai → залогиниться → API Keys → создать ключ, пополнить
+   баланс (порядка $5 хватает надолго: агенты — единицы запусков в сутки).
+2. На VPS: вписать ключ в `/etc/agents/runner.env` (`MOONSHOT_API_KEY=...`),
+   `MOCK_MODE=false`, при желании поправить `MOONSHOT_MODEL`
+   (список моделей: `curl -H "Authorization: Bearer $KEY" https://api.moonshot.ai/v1/models`).
+3. `systemctl restart agents-runner`, затем проверка каждого агент фразой
+   из разделов 6.4–6.15 (они не изменились).
+
+**Проверка без ключа (mock-режим):** `MOCK_MODE=true` в env — раннер пишет
+в лог и шлёт заглушки без LLM. Интеграционный тест: подбросить слушателю фейковый
+Telegram-апдейт (`POST` JSON `{"update_id":…,"message":{…,"text":"вкусвилл, купи молоко"}}`
+на `https://shopping-listener.lev-3d7.workers.dev/`, заголовок `User-Agent: curl/8`)
+→ ack в чате, строки `started`/`success` в Sheets, mock-ответ в группе.
+
+**Надзиратель** работает как раньше: cron VPS → раннер (watchdog), паузы/повторы
+через `/admin/*` слушателя (промпт `runner/prompts/watchdog.md` использует
+тот же `WATCHDOG_ADMIN_TOKEN` через `__WATCHDOG_ADMIN_TOKEN__`).
+Детект «зависшего запуска» — по логу Sheets, как и раньше.
+
+**Как добавить нового агента:**
+1. `runner/prompts/<agent>.md` — промпт (см. соседние как образец);
+2. имя в массив `AGENTS` в `runner/index.js`;
+3. (опционально) триггер-слова и маршрутизация в `scripts/shopping-listener-worker.js`;
+4. перезапуск раннера + редеплой воркера (см. 6.6: код через `/content`,
+   секреты не трогать).
+
+**Известные ограничения:**
+- `web_search` (DuckDuckGo) может отдавать пустую выдачу с датацентровых IP —
+  агент Новостей тогда честно пишет об ошибке в группу (механизм повторения —
+  следующий запуск/фраза «новости» ещё раз). Альтернатива при системной
+  проблеме — платный Brave/Tavily через тот же инструмент `http`.
+- Один запуск = до 30 шагов / 9 минут (лимиты в `RUN_MAX_STEPS`/`RUN_DEADLINE_MS`).
+- Расходы на LLM прозрачно видны в кабинете Moonshot; при желании лимиты
+  ставятся там же.

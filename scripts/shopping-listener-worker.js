@@ -14,21 +14,17 @@
 // файл как код воркера → Deploy → скопировать URL (*.workers.dev).
 //
 // Секреты — Settings → Variables and Secrets (тип Secret, не Text):
-//   ROUTINE_TRIGGER_URL            — URL fire-эндпоинта Routine "Shopping"
-//   ROUTINE_TRIGGER_TOKEN          — Bearer-токен для этого эндпоинта
-//   ROUTINE_TRIGGER_URL_GROCERY    — URL fire-эндпоинта Routine "grocery" (ВкусВилл)
-//   ROUTINE_TRIGGER_TOKEN_GROCERY  — Bearer-токен для этого эндпоинта
-//   ROUTINE_TRIGGER_URL_TRAVEL     — URL fire-эндпоинта Routine "Travel" (Туту)
-//   ROUTINE_TRIGGER_TOKEN_TRAVEL   — Bearer-токен для этого эндпоинта
-//   ROUTINE_TRIGGER_URL_BOOKING    — URL fire-эндпоинта Routine "Booking" (жильё)
-//   ROUTINE_TRIGGER_TOKEN_BOOKING  — Bearer-токен для этого эндпоинта
+//   RUNNER_URL                     — URL раннера агентов (POST /run), например
+//                                    https://193-233-84-69.sslip.io/<секрет>/agents/run
+//   RUNNER_TOKEN                   — общий Bearer-ключ раннер↔воркер (запуски + /admin/runner-tg)
 //   TELEGRAM_BOT_TOKEN             — токен @LAgentsControl_bot (для голосовых:
 //                                    скачать файл + отправить ack/ошибку в чат)
 //   WATCHDOG_ADMIN_TOKEN           — ключ надзирателя для /admin/* (пауза агента,
 //                                    повтор зависшего запроса, статус)
 //   APIFY_TOKEN                    — для ежедневной проверки кредита Apify (cron)
 //   DGIS_API_KEY                   — ежедневная проверка ключа 2ГИС (cron)
-//   ROUTINE_TRIGGER_URL_NEARBY / ROUTINE_TRIGGER_TOKEN_NEARBY — Routine «Nearby» (2ГИС)
+//   (исторические ROUTINE_TRIGGER_* для Claude Routines больше не нужны —
+//    Anthropic заблокирован в регионе, агенты переехали на раннер, см. runner/)
 //
 // Bindings — Settings → Bindings:
 //   AI  — Workers AI binding (Whisper для голосовых + ИИ-маршрутизатор для текста без слов агентов),
@@ -577,10 +573,11 @@ async function transcribeVoice(env, fileId) {
   return ((result && result.text) || '').trim();
 }
 
-async function sendTelegramMessage(env, { chatId, text, replyToMessageId, businessConnectionId }) {
+async function sendTelegramMessage(env, { chatId, text, replyToMessageId, businessConnectionId, disableWebPagePreview }) {
   const body = { chat_id: chatId, text };
   if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
   if (businessConnectionId) body.business_connection_id = businessConnectionId;
+  if (disableWebPagePreview) body.disable_web_page_preview = true;
   await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -588,26 +585,53 @@ async function sendTelegramMessage(env, { chatId, text, replyToMessageId, busine
   });
 }
 
+// Запуск агента: раннер на своём VPS (замена Claude Code Routines — Anthropic
+// недоступен из региона). Все агенты ходят в один эндпоинт /run, раннер сам
+// мультиплексирует по полю agent.
 async function triggerRoutine(env, target, params) {
-  const endpoints = {
-    grocery: [env.ROUTINE_TRIGGER_URL_GROCERY, env.ROUTINE_TRIGGER_TOKEN_GROCERY],
-    travel: [env.ROUTINE_TRIGGER_URL_TRAVEL, env.ROUTINE_TRIGGER_TOKEN_TRAVEL],
-    booking: [env.ROUTINE_TRIGGER_URL_BOOKING, env.ROUTINE_TRIGGER_TOKEN_BOOKING],
-    nearby: [env.ROUTINE_TRIGGER_URL_NEARBY, env.ROUTINE_TRIGGER_TOKEN_NEARBY],
-    shopping: [env.ROUTINE_TRIGGER_URL, env.ROUTINE_TRIGGER_TOKEN]
-  };
-  const [url, token] = endpoints[target];
-  const resp = await fetch(url, {
+  const resp = await fetch(env.RUNNER_URL, {
     method: 'POST',
     headers: {
-      Authorization: 'Bearer ' + token,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'experimental-cc-routine-2026-04-01',
-      'Content-Type': 'application/json'
+      Authorization: 'Bearer ' + env.RUNNER_TOKEN,
+      'Content-Type': 'application/json',
+      'User-Agent': 'curl/8'
     },
-    body: JSON.stringify({ text: JSON.stringify(params) })
+    body: JSON.stringify({ agent: target, ...params })
   });
   return { status: resp.status, body: await resp.text() };
+}
+
+// Прокси для раннера: с VPS Telegram API недоступен (датацентр заблокирован),
+// поэтому раннер шлёт ответы агентов и скачивает файлы через этот эндпоинт.
+// Авторизация: Bearer RUNNER_TOKEN (тот же секрет, что у раннера).
+async function handleRunnerTelegram(env, body) {
+  if (body.kind === 'sendMessage') {
+    await sendTelegramMessage(env, {
+      chatId: body.chatId,
+      text: body.text,
+      replyToMessageId: body.replyToMessageId,
+      businessConnectionId: body.businessConnectionId,
+      disableWebPagePreview: body.disableWebPagePreview
+    });
+    return { ok: true };
+  }
+  if (body.kind === 'getFile') {
+    const resp = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: body.fileId })
+    });
+    const data = await resp.json();
+    const filePath = data && data.result && data.result.file_path;
+    if (!filePath) return { ok: false, error: 'getFile failed', detail: JSON.stringify(data).slice(0, 300) };
+    const fileResp = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${filePath}`);
+    if (!fileResp.ok) return { ok: false, error: 'file download failed: ' + fileResp.status };
+    const bytes = new Uint8Array(await fileResp.arrayBuffer());
+    const b64 = bytesToBase64(bytes);
+    const mime = filePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    return { ok: true, filePath, size: bytes.length, dataUrl: `data:${mime};base64,${b64}` };
+  }
+  return { ok: false, error: 'unknown kind' };
 }
 
 async function getPause(env, target) {
@@ -901,10 +925,13 @@ export default {
       return new Response('ok', { status: 200 });
     }
 
-    const adminMatch = new URL(request.url).pathname.match(/^\/admin\/(\w+)$/);
+    const adminMatch = new URL(request.url).pathname.match(/^\/admin\/([\w-]+)$/);
     if (adminMatch) {
       const auth = request.headers.get('Authorization') || '';
-      if (!env.WATCHDOG_ADMIN_TOKEN || auth !== 'Bearer ' + env.WATCHDOG_ADMIN_TOKEN) {
+      const action = adminMatch[1];
+      // runner-tg — прокси раннера: его ключ RUNNER_TOKEN, не ключ надзирателя.
+      const runnerAccess = action === 'runner-tg' && env.RUNNER_TOKEN && auth === 'Bearer ' + env.RUNNER_TOKEN;
+      if ((!env.WATCHDOG_ADMIN_TOKEN || auth !== 'Bearer ' + env.WATCHDOG_ADMIN_TOKEN) && !runnerAccess) {
         return new Response('forbidden', { status: 403 });
       }
       let body = {};
@@ -913,7 +940,8 @@ export default {
       } catch (err) {
         return json({ ok: false, error: 'invalid json' });
       }
-      return json(await handleAdmin(env, adminMatch[1], body));
+      if (action === 'runner-tg') return json(await handleRunnerTelegram(env, body));
+      return json(await handleAdmin(env, action, body));
     }
 
     const rawBody = await request.text();
