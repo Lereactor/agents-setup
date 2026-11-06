@@ -150,7 +150,7 @@ async function mcpInit(server) {
   mcpSessions.set(server, sessionId);
 }
 
-async function mcpCall(server, tool, args) {
+async function mcpCallOnce(server, tool, args) {
   await mcpInit(server);
   const sessionId = mcpSessions.get(server);
   const { data } = await mcpRequest(server, 'tools/call', { name: tool, arguments: args || {} }, sessionId);
@@ -161,45 +161,100 @@ async function mcpCall(server, tool, args) {
   try { return JSON.parse(text); } catch (e) { return text; }
 }
 
+async function mcpCall(server, tool, args) {
+  try {
+    return await mcpCallOnce(server, tool, args);
+  } catch (e) {
+    // сессия протухла (supergateway, таймаут 5 мин) — перелогиниваемся и повторяем
+    if (String(e.message || '').includes('Session not found')) {
+      mcpSessions.delete(server);
+      return await mcpCallOnce(server, tool, args);
+    }
+    throw e;
+  }
+}
+
 // ---------- веб-поиск (DuckDuckGo, без ключа) ----------
 
 async function webSearch(query) {
-  const attempts = [
-    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
-    `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`
-  ];
-  let lastErr = '';
-  for (const url of attempts) {
+  const q = encodeURIComponent(query);
+  const UA = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8'
+  };
+  const clean = (s) => s
+    .replace(/<[^>]+>/g, '')
+    .replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ').replace(/&#0183;/g, '·').replace(/&#32;/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+
+  // Bing отдаёт ссылки-редиректы /ck/a?...&u=a1<base64url> — раскодируем
+  const decodeBing = (href) => {
     try {
-      const resp = await fetchWithTimeout(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-      }, 20000);
+      const u = new URL(href.startsWith('http') ? href : 'https://www.bing.com' + href);
+      const enc = u.searchParams.get('u');
+      if (enc && enc.startsWith('a1')) {
+        let b = enc.slice(2).replace(/-/g, '+').replace(/_/g, '/');
+        while (b.length % 4) b += '=';
+        const decoded = Buffer.from(b, 'base64').toString('utf8');
+        if (decoded.startsWith('http')) return decoded;
+      }
+    } catch (e) { /* оставляем как есть */ }
+    return href;
+  };
+
+  // 1) DuckDuckGo html
+  try {
+    const resp = await fetchWithTimeout(`https://html.duckduckgo.com/html/?q=${q}`, { headers: UA }, 20000);
+    if (resp.status === 200) {
       const html = await resp.text();
       const results = [];
-      // html.duckduckgo.com: result__a / result__snippet; lite: table с links
       const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
       let m;
       while ((m = re.exec(html)) && results.length < 10) {
         let href = m[1];
         const uddg = href.match(/uddg=([^&]+)/);
         if (uddg) href = decodeURIComponent(uddg[1]);
-        const clean = (s) => s.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&').trim();
         results.push({ title: clean(m[2]), snippet: clean(m[3]), url: href });
       }
-      if (!results.length) {
-        const liteRe = /<a rel="nofollow" href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
-        while ((m = liteRe.exec(html)) && results.length < 10) {
-          const clean = (s) => s.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&').trim();
-          results.push({ title: clean(m[2]), snippet: '', url: m[1] });
-        }
+      if (results.length) return results;
+    }
+  } catch (e) { /* пробуем дальше */ }
+
+  // 2) DuckDuckGo lite
+  try {
+    const resp = await fetchWithTimeout(`https://lite.duckduckgo.com/lite/?q=${q}`, { headers: UA }, 20000);
+    if (resp.status === 200) {
+      const html = await resp.text();
+      const results = [];
+      const liteRe = /<a rel="nofollow" href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+      let m;
+      while ((m = liteRe.exec(html)) && results.length < 10) {
+        results.push({ title: clean(m[2]), snippet: '', url: m[1] });
       }
       if (results.length) return results;
-      lastErr = 'пустая выдача';
-    } catch (e) {
-      lastErr = e.message;
     }
-  }
-  throw new Error('web_search не сработал: ' + lastErr);
+  } catch (e) { /* пробуем дальше */ }
+
+  // 3) Bing (с датацентровых IP работает стабильнее DDG)
+  try {
+    const resp = await fetchWithTimeout(`https://www.bing.com/search?q=${q}&setlang=ru&count=20`, { headers: UA }, 20000);
+    if (resp.status === 200) {
+      const html = await resp.text();
+      const chunks = html.split('<li class="b_algo"').slice(1);
+      const results = [];
+      for (const c of chunks) {
+        const m = c.match(/<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+        if (!m) continue;
+        const pm = c.match(/<p[^>]*class="[^"]*b_lineclamp[^"]*"[^>]*>([\s\S]*?)<\/p>/) || c.match(/<p[^>]*>([\s\S]*?)<\/p>/);
+        results.push({ title: clean(m[2]), snippet: pm ? clean(pm[1]) : '', url: decodeBing(m[1]) });
+        if (results.length >= 10) break;
+      }
+      if (results.length) return results;
+    }
+  } catch (e) { /* пробуем дальше */ }
+
+  throw new Error('web_search: пусто на всех движках (ddg html, ddg lite, bing) — вероятно, временная антибот-режня датацентрового IP');
 }
 
 // ---------- инструменты модели ----------
@@ -448,17 +503,19 @@ async function runAgent(job) {
         console.error(`[run] ${ctx.agent} ${ctx.runId} deadline`);
         return;
       }
+      const payload = {
+        model: MODEL,
+        messages,
+        tools,
+        max_tokens: 4096,
+        parallel_tool_calls: true
+      };
+      // kimi-k3 допускает только temperature=1 — не шлём параметр, если он не задан явно
+      if (process.env.MOONSHOT_TEMPERATURE) payload.temperature = Number(process.env.MOONSHOT_TEMPERATURE);
       const resp = await fetchWithTimeout(`${BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + API_KEY },
-        body: JSON.stringify({
-          model: MODEL,
-          messages,
-          tools,
-          temperature: 0.3,
-          max_tokens: 4096,
-          parallel_tool_calls: true
-        })
+        body: JSON.stringify(payload)
       }, 180000);
       const text = await resp.text();
       if (!resp.ok) {
