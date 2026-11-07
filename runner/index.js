@@ -512,18 +512,26 @@ async function runAgent(job) {
       };
       // kimi-k3 допускает только temperature=1 — не шлём параметр, если он не задан явно
       if (process.env.MOONSHOT_TEMPERATURE) payload.temperature = Number(process.env.MOONSHOT_TEMPERATURE);
-      const resp = await fetchWithTimeout(`${BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + API_KEY },
-        body: JSON.stringify(payload)
-      }, 180000);
-      const text = await resp.text();
+      // ретрай при 429 (rate limit) — до 3 попыток с паузой 20/40/60 с
+      let resp = null;
+      let lastText = '';
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        resp = await fetchWithTimeout(`${BASE_URL}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + API_KEY },
+          body: JSON.stringify(payload)
+        }, 180000);
+        lastText = await resp.text();
+        if (resp.status !== 429) break;
+        console.error(`[run] ${ctx.agent} LLM 429, попытка ${attempt}/3`);
+        await new Promise((r) => setTimeout(r, 20000 * attempt));
+      }
       if (!resp.ok) {
-        await sheetsLog({ agent: ctx.agent, status: 'error', detail: `LLM HTTP ${resp.status}: ${truncate(text, 200)}`, runId: ctx.runId, reply: ctx.replyText });
+        await sheetsLog({ agent: ctx.agent, status: 'error', detail: `LLM HTTP ${resp.status}: ${truncate(lastText, 200)}`, runId: ctx.runId, reply: ctx.replyText });
         console.error(`[run] ${ctx.agent} LLM HTTP ${resp.status}`);
         return;
       }
-      const data = JSON.parse(text);
+      const data = JSON.parse(lastText);
       const msg = data.choices && data.choices[0] && data.choices[0].message;
       if (!msg) {
         await sheetsLog({ agent: ctx.agent, status: 'error', detail: 'пустой ответ LLM', runId: ctx.runId, reply: ctx.replyText });
