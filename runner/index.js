@@ -292,7 +292,7 @@ function buildTools(ctx) {
       type: 'function',
       function: {
         name: 'http',
-        description: 'Произвольный HTTP-запрос (Apify, Суточно, каталог 2ГИС, админка слушателя и любые другие API).',
+        description: 'Произвольный HTTP-запрос (Apify, Суточно, админка слушателя и любые другие API).',
         parameters: {
           type: 'object',
           properties: {
@@ -310,7 +310,7 @@ function buildTools(ctx) {
       type: 'function',
       function: {
         name: 'mcp',
-        description: `Вызов инструмента MCP-сервера. Серверы: vkusvill (продукты), tutu (поезда/авиа/отели), dgis (2ГИС), avia (Aviasales/Travelpayouts). Перед первым использованием сервера tutu вызови get_<вид>_instructions. ВАЖНО: координаты в dgis — объекты {lat, lng} (ЧИСЛА), не строки: search_poi({query, center:{lat,lng}, radius}), calculate_route({start:{lat,lng} или "адрес", end: ..., profile:"pedestrian"|"taxi"|"car"}), geocode({query}), reverse_geocode({coordinate:{lat,lng}}).`,
+        description: `Вызов инструмента MCP-сервера. Серверы: vkusvill (продукты), tutu (поезда/авиа/отели), avia (Aviasales/Travelpayouts). Сервер dgis (2ГИС) отключён: демо-ключ истёк 13.11.2026 — НЕ вызывай его, для геоданных используй osm_geocode/osm_reverse/osm_search. Перед первым использованием сервера tutu вызови get_<вид>_instructions.`,
         parameters: {
           type: 'object',
           properties: {
@@ -337,6 +337,47 @@ function buildTools(ctx) {
     {
       type: 'function',
       function: {
+        name: 'osm_geocode',
+        description: 'Геокодинг OpenStreetMap: адрес/метро/достопримечательность/город → координаты. Возвращает до 3 вариантов с lat, lng (числа) и display_name.',
+        parameters: {
+          type: 'object',
+          properties: { query: { type: 'string', description: 'Например «метро Площадь Ленина, Новосибирск»' } },
+          required: ['query']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'osm_reverse',
+        description: 'Обратный геокодинг OpenStreetMap: координаты → адрес.',
+        parameters: {
+          type: 'object',
+          properties: { lat: { type: 'number' }, lng: { type: 'number' } },
+          required: ['lat', 'lng']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'osm_search',
+        description: 'Поиск мест (POI) рядом с точкой через OpenStreetMap. Возвращает до 10 мест, отсортированных по расстоянию: название, категория, адрес, distance_m, walk_min (оценка пешком), opening_hours/phone/website/cuisine (если внесены в OSM), osm_url. Рейтингов и отзывов в OSM НЕТ — не выдумывать. Мало результатов — повтори с radius вдвое больше.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Что ищем: «кофейня», «аптека», «грузинский ресторан», «станция метро»' },
+            lat: { type: 'number', description: 'Широта центра (число)' },
+            lng: { type: 'number', description: 'Долгота центра (число)' },
+            radius: { type: 'number', description: 'Радиус в метрах: рядом 700, пешком 1500, район 3000' }
+          },
+          required: ['query', 'lat', 'lng']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
         name: 'read_log',
         description: 'Прочитать общий лог запусков агентов (Google Sheets) за последние N часов. Только для надзирателя.',
         parameters: {
@@ -346,6 +387,120 @@ function buildTools(ctx) {
       }
     }
   ];
+}
+
+// ---------- OpenStreetMap (Nominatim): геокодинг и поиск мест рядом ----------
+
+const OSM_UA = 'personal-agents/1.0 (low-volume personal assistant)';
+const OSM_BASE = 'https://nominatim.openstreetmap.org';
+const OSM_CATEGORIES = [
+  [/кофейн|кофе\b/i, 'cafe'], [/кафе\b|поесть|пообедать|поужинать|перекусить/i, 'cafe'],
+  [/ресторан/i, 'restaurant'], [/пицц/i, 'pizza'], [/суши/i, 'sushi'], [/шаурм/i, 'shawarma'],
+  [/\bбар\b|паб\b/i, 'bar'], [/пивн|пиво\b/i, 'pub'],
+  [/аптек/i, 'pharmacy'], [/банкомат/i, 'atm'], [/банк\b/i, 'bank'],
+  [/супермаркет|продукты|продуктов/i, 'supermarket'], [/магазин/i, 'convenience'],
+  [/пекарн|выпечк|булочн/i, 'bakery'], [/кондитер/i, 'confectionery'],
+  [/цветы|цветочн/i, 'florist'], [/книг/i, 'books'],
+  [/кино\b|кинотеатр/i, 'cinema'], [/театр/i, 'theatre'], [/музей/i, 'museum'],
+  [/парк\b|сквер/i, 'park'], [/спортзал|фитнес/i, 'fitness centre'],
+  [/парикмахер|стрижк|барбер/i, 'hairdresser'], [/стоматолог/i, 'dentist'],
+  [/поликлиник/i, 'clinic'], [/больниц/i, 'hospital'], [/школ/i, 'school'],
+  [/заправк|азс\b/i, 'fuel'], [/парковк/i, 'parking'], [/почт/i, 'post office'],
+  [/отель|гостиниц/i, 'hotel'], [/хостел/i, 'hostel'],
+  [/метро/i, 'станция метро'], [/вокзал/i, 'вокзал'],
+  [/тц\b|торговый центр|молл/i, 'shopping mall'], [/рынок|ярмарк/i, 'marketplace']
+];
+
+function osmCategory(query) {
+  for (const [re, en] of OSM_CATEGORIES) if (re.test(query)) return en;
+  return '';
+}
+
+function haversineM(lat1, lng1, lat2, lng2) {
+  const rad = (d) => (d * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function osmNominatim(path, params) {
+  const url = OSM_BASE + path + '?' + new URLSearchParams({ format: 'json', ...params });
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const resp = await fetchWithTimeout(url, { headers: { 'User-Agent': OSM_UA, Accept: 'application/json' } }, 25000);
+      if (!resp.ok) throw new Error('nominatim HTTP ' + resp.status + ': ' + (await resp.text()).slice(0, 150));
+      return await resp.json();
+    } catch (e) {
+      lastErr = e;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+  throw lastErr;
+}
+
+async function osmGeocode(query) {
+  const items = await osmNominatim('/search', { q: query, limit: 3 });
+  return items.map((it) => ({
+    name: it.name || it.display_name.split(',')[0],
+    display_name: it.display_name,
+    lat: parseFloat(it.lat),
+    lng: parseFloat(it.lon),
+    type: [it.class, it.type].filter(Boolean).join('/')
+  }));
+}
+
+async function osmReverse(lat, lng) {
+  const it = await osmNominatim('/reverse', { lat, lon: lng });
+  return { display_name: it.display_name || '', lat: parseFloat(it.lat), lng: parseFloat(it.lon) };
+}
+
+async function osmSearch(query, lat, lng, radius) {
+  const radiusM = Math.min(Math.max(Number(radius) || 700, 100), 20000);
+  const dLat = radiusM / 111320;
+  const dLng = radiusM / (111320 * Math.cos((lat * Math.PI) / 180));
+  const viewbox = [lng - dLng, lat + dLat, lng + dLng, lat - dLat].map((n) => n.toFixed(6)).join(',');
+  const queries = [query];
+  const en = osmCategory(query);
+  if (en && en.toLowerCase() !== query.trim().toLowerCase()) queries.push(en);
+  let all = [];
+  for (const q of queries) {
+    try {
+      const items = await osmNominatim('/search', { q, viewbox, bounded: 1, limit: 15, extratags: 1 });
+      all = all.concat(items);
+    } catch (e) {
+      if (queries.indexOf(q) === 0) throw e;
+    }
+    if (all.length >= 12) break;
+    if (queries.length > 1) await new Promise((r) => setTimeout(r, 1100)); // Nominatim: 1 запрос/сек
+  }
+  const seen = new Set();
+  const places = [];
+  for (const it of all) {
+    const key = it.osm_type + '/' + it.osm_id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const ilat = parseFloat(it.lat), ilng = parseFloat(it.lon);
+    const dist = Math.round(haversineM(lat, lng, ilat, ilng));
+    if (dist > radiusM) continue;
+    const tags = it.extratags || {};
+    places.push({
+      name: it.name || it.display_name.split(',')[0],
+      category: [it.class, it.type].filter(Boolean).join('/'),
+      address: it.display_name,
+      lat: ilat,
+      lng: ilng,
+      distance_m: dist,
+      walk_min: Math.max(1, Math.round(dist / 80)),
+      opening_hours: tags.opening_hours || '',
+      phone: tags.phone || tags['contact:phone'] || '',
+      website: tags.website || tags['contact:website'] || '',
+      cuisine: tags.cuisine || '',
+      osm_url: `https://www.openstreetmap.org/${it.osm_type}/${it.osm_id}`
+    });
+  }
+  places.sort((a, b) => a.distance_m - b.distance_m);
+  return { center: { lat, lng }, radius_m: radiusM, found: places.length, places: places.slice(0, 10) };
 }
 
 async function execTool(name, args, ctx) {
@@ -393,6 +548,12 @@ async function execTool(name, args, ctx) {
       return await mcpCall(args.server, args.tool, args.arguments || {});
     case 'web_search':
       return await webSearch(args.query);
+    case 'osm_geocode':
+      return await osmGeocode(args.query);
+    case 'osm_reverse':
+      return await osmReverse(Number(args.lat), Number(args.lng));
+    case 'osm_search':
+      return await osmSearch(args.query, Number(args.lat), Number(args.lng), args.radius);
     case 'read_log':
       return await readLogSheet(Number(args.hours || 48));
     default:
@@ -447,7 +608,7 @@ const MOCK_REPLIES = {
   grocery: '🛒 Молоко (mock-режим)\n\n1. Молоко — 100 ₽\n   🔗 Корзина: https://example.com',
   travel: '🚆 Москва → СПб (mock-режим)\n\n1. 🚆 «Ласточка» — 15:35 → 21:05, от 2 113 ₽\n   👉 https://example.com',
   booking: '🏡 Москва (mock-режим)\n\n🟢 Суточно\n1. Квартира — 3 000 ₽/ночь\n   https://example.com',
-  nearby: '📍 Кофейня рядом (mock-режим)\n\n1. Кофейня — ★4.9 (120 отзывов)\n   🚶 5 мин\n   https://2gis.ru/firm/1'
+  nearby: '📍 Кофейня рядом (mock-режим)\n\n1. Кофейня — amenity/cafe\n   🚶 5 мин\n   https://www.openstreetmap.org/node/1'
 };
 
 async function runAgent(job) {
@@ -518,7 +679,7 @@ async function runAgent(job) {
       for (let attempt = 1; attempt <= 3; attempt++) {
         resp = await fetchWithTimeout(`${BASE_URL}/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + API_KEY },
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + API_KEY, 'X-Runner-Token': RUNNER_TOKEN },
           body: JSON.stringify(payload)
         }, 180000);
         lastText = await resp.text();

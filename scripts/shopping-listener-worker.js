@@ -925,6 +925,28 @@ export default {
       return new Response('ok', { status: 200 });
     }
 
+    // Прокси LLM для раннера: api.moonshot.ai с VPS напрямую недоступен
+    // (таймаут до Cloudflare IP), воркер ходит в Moonshot от его имени.
+    // Авторизация — X-Runner-Token (RUNNER_TOKEN), ключ Moonshot проходит
+    // сквозняком в Authorization, воркер его нигде не сохраняет.
+    if (new URL(request.url).pathname === '/llm/chat/completions') {
+      if (!env.RUNNER_TOKEN || request.headers.get('X-Runner-Token') !== env.RUNNER_TOKEN) {
+        return new Response('forbidden', { status: 403 });
+      }
+      const upstream = await fetch('https://api.moonshot.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: request.headers.get('Authorization') || ''
+        },
+        body: await request.text()
+      });
+      return new Response(upstream.body, {
+        status: upstream.status,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     const adminMatch = new URL(request.url).pathname.match(/^\/admin\/([\w-]+)$/);
     if (adminMatch) {
       const auth = request.headers.get('Authorization') || '';
@@ -1058,6 +1080,6 @@ export default {
 
   // Cron Triggers (Settings → Triggers): «0 6 * * *» — проверка кредита Apify.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(Promise.allSettled([checkApifyCredit(env), sendReminders(env), check2gisKey(env)]));
+    ctx.waitUntil(Promise.allSettled([checkApifyCredit(env), sendReminders(env)]));
   }
 };

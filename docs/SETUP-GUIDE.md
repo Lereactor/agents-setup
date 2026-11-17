@@ -639,6 +639,17 @@ seller-side MCP для управления ценами (не для покуп
 
 ## 6.15 MCP на своём VPS: 2ГИС и Aviasales; агент «Рядом» (2026-10-14)
 
+> **2026-11-17 — 2ГИС заменён на OpenStreetMap.** Демо-ключ истёк 13.11.
+> «Рядом» и шаг «метро/центр» в «Жильё» переведены на Nominatim: новые
+> инструменты раннера `osm_geocode`, `osm_reverse`, `osm_search` (поиск POI
+> рамкой viewbox, дедуп, сортировка по расстоянию, walk_min, opening_hours/
+> phone/website/cuisine из extratags, ссылки osm.org, 3 попытки с паузой).
+> Рейтингов/отзывов в OSM нет, маршрут — ссылка osm.org/directions (foot).
+> Сервис `mcp-2gis` остановлен и выключен (`systemctl stop/disable mcp-2gis`),
+> воркер больше не проверяет ключ 2ГИС по cron. Overpass API с VPS перегружен/
+> недоступен, поэтому выбран Nominatim. Возврат к 2ГИС — платный ключ и
+> `systemctl enable --now mcp-2gis` + старые промпты из git.
+
 **VPS** 193.233.84.69 (Ubuntu 24.04, 1 CPU / 1 ГБ / ~0,5 ГБ свободно). SSH:
 `ssh -i ~/.ssh/vtb_monitor_ed25519 -o UserKnownHostsFile=<путь к known_hosts> root@193.233.84.69`
 (в Git Bash ssh ищет known_hosts не там — путь указывать явно; ufw LIMIT на 22 — частые
@@ -945,6 +956,16 @@ Google Sheets (и дашборд, и сайт на нём), VPS с MCP 2ГИС/A
   `MOONSHOT_API_KEY` в `/etc/agents/runner.env`). Нужен свой ключ:
   platform.moonshot.ai → API Keys. Это отдельная поминутная оплата
   (подписка Kimi Code сюда не входит).
+  **С 2026-11-17 LLM ходит через прокси в слушателе:** с VPS
+  `api.moonshot.ai` перестал отвечать (таймаут до Cloudflare IP, все агенты
+  падали с `fetch failed`), поэтому `MOONSHOT_BASE_URL` на VPS =
+  `https://shopping-listener.lev-3d7.workers.dev/llm`. Маршрут
+  `POST /llm/chat/completions` в воркере требует заголовок
+  `X-Runner-Token: <RUNNER_TOKEN>` (раннер шлёт его автоматически), ключ
+  Moonshot проходит сквозняком в `Authorization`, воркер его не хранит.
+  Возврат на прямой путь: вернуть `MOONSHOT_BASE_URL=https://api.moonshot.ai/v1`
+  и перезапустить `agents-runner`. В `cf_api.txt` исторически три разных
+  `RUNNER_TOKEN` — рабочий последний (совпадает с `/etc/agents/runner.env`).
 
 **Инструменты, которые видит модель** (реализация в `runner/index.js`):
 - `log(status, detail)` — лог Sheets; RUN_ID/время подставляются
@@ -954,10 +975,12 @@ Google Sheets (и дашборд, и сайт на нём), VPS с MCP 2ГИС/A
   (`POST /admin/runner-tg` с Bearer `RUNNER_TOKEN`), потому что с VPS
   Telegram API недоступен (датацентр заблокирован Telegram'ом, проверено:
   таймаут по IPv4 и IPv6). Слушатель — единственный рабочий путь к Telegram;
-- `http(method, url, headers, body)` — Apify, Суточно, каталог 2ГИС,
+- `http(method, url, headers, body)` — Apify, Суточно,
   админка слушателя и любые API;
 - `mcp(server, tool, arguments)` — серверы: `vkusvill`, `tutu` (публичные
-  URL), `dgis`/`avia` (localhost:8101/8102 на том же VPS);
+  URL), `avia` (localhost:8102 на том же VPS); `dgis` отключён 17.11.2026;
+- `osm_geocode(query)`, `osm_reverse(lat,lng)`, `osm_search(query,lat,lng,radius)`
+  — OpenStreetMap/Nominatim для «Рядом» и «Жильё» (замена 2ГИС, см. 6.15);
 - `web_search(query)` — DuckDuckGo без ключа (html.duckduckgo.com,
   запасной lite.duckduckgo.com); используется агентом Новостей;
 - `read_log(hours)` — лог Sheets для надзирателя (не сырым HTTP — инструмент
