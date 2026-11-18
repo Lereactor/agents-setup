@@ -966,6 +966,13 @@ Google Sheets (и дашборд, и сайт на нём), VPS с MCP 2ГИС/A
   Возврат на прямой путь: вернуть `MOONSHOT_BASE_URL=https://api.moonshot.ai/v1`
   и перезапустить `agents-runner`. В `cf_api.txt` исторически три разных
   `RUNNER_TOKEN` — рабочий последний (совпадает с `/etc/agents/runner.env`).
+- **Деплой воркера — через GitHub Actions** (`.github/workflows/deploy-worker.yml`):
+  пуш изменений `scripts/shopping-listener-worker.js` в main (или ручной
+  workflow_dispatch) обновляет код воркера и секрет `APIFY_TOKEN` с серверов
+  GitHub — api.cloudflare.com бывает недоступен и с VPS, и с домашнего ПК.
+  Секреты репозитория: `CF_API_TOKEN`, `CF_ACCOUNT_ID`, `APIFY_TOKEN`.
+  18.11.2026 Apify отозвал все токены (инцидент безопасности) — токен заменён
+  в `cf_api.txt`, `/etc/agents/runner.env` и воркере, «Покупки» проверены вживую.
 
 **Инструменты, которые видит модель** (реализация в `runner/index.js`):
 - `log(status, detail)` — лог Sheets; RUN_ID/время подставляются
