@@ -645,10 +645,11 @@ seller-side MCP для управления ценами (не для покуп
 > рамкой viewbox, дедуп, сортировка по расстоянию, walk_min, opening_hours/
 > phone/website/cuisine из extratags, ссылки osm.org, 3 попытки с паузой).
 > Рейтингов/отзывов в OSM нет, маршрут — ссылка osm.org/directions (foot).
-> Сервис `mcp-2gis` остановлен и выключен (`systemctl stop/disable mcp-2gis`),
+> Сервис `mcp-2gis` 18.11 остановлен, а затем полностью удалён с VPS (unit,
+> `/opt/mcp/2gis`, `/etc/mcp/2gis.env`, маршрут 2gis в Caddyfile),
 > воркер больше не проверяет ключ 2ГИС по cron. Overpass API с VPS перегружен/
 > недоступен, поэтому выбран Nominatim. Возврат к 2ГИС — платный ключ и
-> `systemctl enable --now mcp-2gis` + старые промпты из git.
+> переустановка `2gis/2gis-mcp` по инструкции ниже + старые промпты из git.
 
 **VPS** 193.233.84.69 (Ubuntu 24.04, 1 CPU / 1 ГБ / ~0,5 ГБ свободно). SSH:
 `ssh -i ~/.ssh/vtb_monitor_ed25519 -o UserKnownHostsFile=<путь к known_hosts> root@193.233.84.69`
