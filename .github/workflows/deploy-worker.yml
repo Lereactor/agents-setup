@@ -1,0 +1,35 @@
+name: deploy-worker
+
+# Деплой Cloudflare-воркера shopping-listener через GitHub Actions:
+# api.cloudflare.com периодически недоступен и с VPS, и с домашнего ПК,
+# с серверов GitHub он доступен всегда. Секреты лежат в Secrets репозитория
+# (CF_API_TOKEN, APIFY_TOKEN), в логи не попадают.
+
+on:
+  push:
+    paths:
+      - scripts/shopping-listener-worker.js
+      - .github/workflows/deploy-worker.yml
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update APIFY_TOKEN secret in worker
+        run: |
+          curl -fsS -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CF_ACCOUNT_ID }}/workers/scripts/shopping-listener/secrets" \
+            -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\":\"APIFY_TOKEN\",\"text\":\"${{ secrets.APIFY_TOKEN }}\",\"type\":\"secret_text\"}"
+
+      - name: Deploy worker code
+        run: |
+          curl -fsS -X PUT \
+            "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CF_ACCOUNT_ID }}/workers/scripts/shopping-listener/content" \
+            -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}" \
+            -F 'metadata={"main_module":"shopping-listener-worker.js"};type=application/json' \
+            -F "shopping-listener-worker.js=@scripts/shopping-listener-worker.js;type=application/javascript+module"
