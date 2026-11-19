@@ -1111,7 +1111,20 @@ export default {
     const candidate = extractCandidate(message);
 
     if (candidate.document) {
-      if (!DOCUMENT_TRIGGER.test(candidate.text)) return json({ ok: true, skipped: 'document without почитай' });
+      if (!DOCUMENT_TRIGGER.test(candidate.text)) {
+        const hint = sendTelegramMessage(env, {
+          chatId: message.chat.id,
+          text: '📄 Вижу документ. Чтобы я его прочитал, отправь файл с подписью «почитай» или ответь на него словом «почитай».',
+          replyToMessageId: message.message_id,
+          businessConnectionId: update.business_message ? (message.business_connection_id || '') : ''
+        });
+        if (isDebug) {
+          await hint;
+          return json({ ok: true, skipped: 'document without почитай', hint_sent: true });
+        }
+        ctx.waitUntil(hint);
+        return json({ ok: true, skipped: 'document without почитай' });
+      }
       if (isDebug) return json(await processDocumentMessage(env, message, update, candidate));
       ctx.waitUntil(processDocumentMessage(env, message, update, candidate));
       return json({ ok: true, processing: 'document' });
