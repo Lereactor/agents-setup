@@ -1,4 +1,5 @@
 import type { AgentStep } from './types'
+import { MOSCOW_TIME_ZONE } from './stats'
 
 /** Цепочка шагов запуска: что агент делал по ходу работы и когда. */
 export default function StepsTimeline({ steps, live = false }: { steps: AgentStep[]; live?: boolean }) {
@@ -8,7 +9,7 @@ export default function StepsTimeline({ steps, live = false }: { steps: AgentSte
       {steps.map((s, i) => (
         <li key={`${s.at}-${i}`} className={live && i === steps.length - 1 ? 'is-current' : ''}>
           <span className="steps__time">
-            {new Date(s.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            {new Date(s.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: MOSCOW_TIME_ZONE })}
           </span>
           <span className="steps__text">{s.text}</span>
         </li>

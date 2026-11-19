@@ -45,9 +45,6 @@ function makeRunId() {
 function mskTime() {
   return new Date(Date.now() + 3 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' МСК';
 }
-function nskTime() {
-  return new Date(Date.now() + 7 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' Новосибирск (UTC+7)';
-}
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
   const ctrl = new AbortController();
@@ -397,7 +394,7 @@ function buildTools(ctx) {
           type: 'object',
           properties: {
             text: { type: 'string', description: 'Что напомнить, до 500 символов' },
-            due_at: { type: 'string', description: 'Например 2026-11-20T15:00:00+07:00' }
+            due_at: { type: 'string', description: 'Например 2026-11-20T15:00:00+03:00 (Москва)' }
           },
           required: ['text', 'due_at']
         }
@@ -642,7 +639,7 @@ function loadPrompt(agent) {
 function buildSystemPrompt(agent) {
   return [
     `Ты — автономный агент «${agent}» личной системы ассистентов. Тебя запустил раннер по запросу из Telegram.`,
-    `Сейчас: ${nskTime()}; ${mskTime()}; ${nowIso()}.`,
+    `Сейчас: ${mskTime()} (Europe/Moscow, UTC+3); ${nowIso()}.`,
     '',
     loadPrompt(agent),
     '',

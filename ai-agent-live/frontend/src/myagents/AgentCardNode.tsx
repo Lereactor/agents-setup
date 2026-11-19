@@ -8,6 +8,8 @@ import BookingArt from './art/BookingArt'
 import NearbyArt from './art/NearbyArt'
 import TravelArt from './art/TravelArt'
 import WatchdogArt from './art/WatchdogArt'
+import DocumentArt from './art/DocumentArt'
+import ReminderArt from './art/ReminderArt'
 import ReplyBubble from './ReplyBubble'
 import { formatAgo, formatDuration } from './stats'
 import type { AgentId, AgentRun, RunStatus } from './types'
@@ -34,8 +36,8 @@ const ART: Record<AgentId, (p: { active: boolean }) => JSX.Element> = {
   travel: TravelArt,
   booking: BookingArt,
   nearby: NearbyArt,
-  documents: NewsArt,
-  reminders: TravelArt,
+  documents: DocumentArt,
+  reminders: ReminderArt,
   uptime: WatchdogArt,
   'news-digest': NewsArt,
   watchdog: WatchdogArt,

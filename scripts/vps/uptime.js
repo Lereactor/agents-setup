@@ -8,7 +8,7 @@ const FAILURE_THRESHOLD = 2;
 const TIMEOUT_MS = 12_000;
 const DEFAULT_TARGETS = [
   { name: 'Cloudflare Worker', url: 'https://shopping-listener.lev-3d7.workers.dev/?debug=1' },
-  { name: 'Agents Runner', url: 'https://193-233-84-69.sslip.io/9c496349dbfd5109fa93a405/agents/health' },
+  { name: 'Agents Runner', url: process.env.RUNNER_HEALTH_URL || 'http://127.0.0.1:8200/health' },
   { name: 'Agents Live', url: 'https://lereactor.github.io/agents-live/' },
 ];
 

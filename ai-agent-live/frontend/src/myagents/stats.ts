@@ -1,22 +1,27 @@
 import type { AgentRun } from './types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+export const MOSCOW_TIME_ZONE = 'Europe/Moscow'
+const moscowDay = new Intl.DateTimeFormat('en', {
+  timeZone: MOSCOW_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
 
-/** Ключ локального дня (у пользователя локальное время = МСК) — 'YYYY-MM-DD'. */
+/** Ключ календарного дня по Москве — 'YYYY-MM-DD'. */
 export function dayKey(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  const parts = Object.fromEntries(moscowDay.formatToParts(date).map((part) => [part.type, part.value]))
+  return `${parts.year}-${parts.month}-${parts.day}`
 }
 
 export function runDayKey(run: AgentRun): string {
   return dayKey(new Date(run.started_at))
 }
 
-/** Последние `days` локальных дней, от старого к новому. */
+/** Последние `days` московских дней, от старого к новому. */
 export function lastDays(days: number, now = new Date()): Date[] {
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const today = new Date(`${dayKey(now)}T00:00:00+03:00`)
   return Array.from({ length: days }, (_, i) => new Date(today.getTime() - (days - 1 - i) * DAY_MS))
 }
 
@@ -78,6 +83,7 @@ export function formatTime(iso: string): string {
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: MOSCOW_TIME_ZONE,
   })
 }
 

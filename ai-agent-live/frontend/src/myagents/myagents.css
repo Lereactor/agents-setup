@@ -1610,3 +1610,57 @@
     margin-left: 0;
   }
 }
+
+/* documents and reminders */
+.document-page {
+  transform-origin: 50% 100%;
+  animation: document-float 4s ease-in-out infinite;
+}
+.document-lens {
+  transform-origin: 50% 50%;
+}
+.document-sparks {
+  animation: document-sparkle 2.4s ease-in-out infinite;
+}
+.art--active .document-lens {
+  animation: document-scan 2.2s ease-in-out infinite;
+}
+.reminder-hands {
+  transform-origin: 120px 59px;
+}
+.reminder-waves {
+  opacity: 0.45;
+}
+.reminder-check {
+  opacity: 0.8;
+}
+.art--active .reminder-hands {
+  animation: reminder-tick 2s steps(12, end) infinite;
+}
+.art--active .reminder-waves {
+  animation: reminder-ring 0.8s ease-in-out infinite;
+}
+.art--active .reminder-bells {
+  transform-origin: 50% 50%;
+  animation: reminder-bells 0.8s ease-in-out infinite;
+}
+@keyframes document-float {
+  50% { transform: translateY(-2px); }
+}
+@keyframes document-scan {
+  0%, 100% { transform: translate(-13px, -7px); }
+  50% { transform: translate(5px, 2px); }
+}
+@keyframes document-sparkle {
+  50% { opacity: 0.3; }
+}
+@keyframes reminder-tick {
+  to { transform: rotate(360deg); }
+}
+@keyframes reminder-ring {
+  50% { opacity: 1; }
+}
+@keyframes reminder-bells {
+  25% { transform: rotate(-2deg); }
+  75% { transform: rotate(2deg); }
+}

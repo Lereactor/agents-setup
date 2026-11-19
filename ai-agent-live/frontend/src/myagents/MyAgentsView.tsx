@@ -10,7 +10,7 @@ import OperationalStatus from './OperationalStatus'
 import { DEFAULT_POSITIONS, baseEdges, edgeAgents, sourceNodes, type ParticleEdgeData } from './layout'
 import ParticleEdge from './ParticleEdge'
 import SourceNode from './SourceNode'
-import { formatAgo, todayCounts } from './stats'
+import { formatAgo, MOSCOW_TIME_ZONE, todayCounts } from './stats'
 import type { AgentId, AgentRun, RunStatus } from './types'
 import { useAgentLog, type AgentChange } from './useAgentLog'
 import { REPLAY_PERIODS, useReplay } from './useReplay'
@@ -309,7 +309,7 @@ export default function MyAgentsView() {
                 <span>
                   {replay.slow ? '▶ работа · ' : '⏩ '}
                   {replay.virtualTime &&
-                    new Date(replay.virtualTime).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    new Date(replay.virtualTime).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: MOSCOW_TIME_ZONE })}
                 </span>
               </div>
               <button className="btn" onClick={replay.stop}>

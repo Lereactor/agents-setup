@@ -84,8 +84,8 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     title: 'Новости',
     emoji: '📰',
     color: '#ffb347',
-    trigger: 'каждый день в 08:00',
-    schedule: '⏰ каждый день в 08:00',
+    trigger: 'каждый день в 08:00 (Москва)',
+    schedule: '⏰ каждый день в 08:00 (Москва)',
     description: 'Дайджест: банки и IT, до 5 главных новостей',
   },
   watchdog: {

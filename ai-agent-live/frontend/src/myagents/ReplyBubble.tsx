@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MOSCOW_TIME_ZONE } from './stats'
 
 interface Props {
   text: string
@@ -12,7 +13,7 @@ interface Props {
 export default function ReplyBubble({ text, at, collapsible = true }: Props) {
   const [open, setOpen] = useState(!collapsible)
   const long = text.split('\n').length > 6 || text.length > 360
-  const time = at ? new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : ''
+  const time = at ? new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: MOSCOW_TIME_ZONE }) : ''
 
   return (
     <div className="tg-msg">

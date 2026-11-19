@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { AGENT_ORDER, AGENTS } from './agents'
-import { runsByDay } from './stats'
+import { MOSCOW_TIME_ZONE, runsByDay } from './stats'
 import type { AgentRun } from './types'
 
 const DAYS = 30
@@ -35,7 +35,7 @@ export default function Heatmap({ runs, selectedDay, onSelectDay }: Props) {
         Активность за 30 дней
         {selectedDay && (
           <button className="chip chip--clear" onClick={() => onSelectDay(null)}>
-            {new Date(selectedDay).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} ×
+            {new Date(selectedDay).toLocaleDateString('ru-RU', { timeZone: MOSCOW_TIME_ZONE, day: 'numeric', month: 'short' })} ×
           </button>
         )}
       </div>
@@ -49,7 +49,7 @@ export default function Heatmap({ runs, selectedDay, onSelectDay }: Props) {
               textAnchor={i === DAYS - 1 ? 'end' : 'start'}
               className="heatmap__axis"
             >
-              {d.date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+              {d.date.toLocaleDateString('ru-RU', { timeZone: MOSCOW_TIME_ZONE, day: 'numeric', month: 'short' })}
             </text>
           ) : null,
         )}
@@ -68,7 +68,7 @@ export default function Heatmap({ runs, selectedDay, onSelectDay }: Props) {
                 return (
                   <g key={cell.key} className="heatmap__cell" onClick={() => onSelectDay(selected ? null : cell.key)}>
                     <title>
-                      {`${AGENTS[agent].title}, ${cell.date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}: ` +
+                      {`${AGENTS[agent].title}, ${cell.date.toLocaleDateString('ru-RU', { timeZone: MOSCOW_TIME_ZONE, day: 'numeric', month: 'long' })}: ` +
                         `${cell.total} запуск(ов)${cell.errors ? `, ошибок: ${cell.errors}` : ''}`}
                     </title>
                     <rect

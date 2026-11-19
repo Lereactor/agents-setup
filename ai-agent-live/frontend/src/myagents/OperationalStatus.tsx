@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { MOSCOW_TIME_ZONE } from './stats'
 
 const STATUS_URL = 'https://shopping-listener.lev-3d7.workers.dev/status.json'
 const POLL_MS = 30_000
@@ -71,7 +72,7 @@ export default function OperationalStatus() {
       <div className="ops-strip__title">
         <strong>Инфраструктура</strong>
         <span className={unavailable ? 'ops-error' : 'dim'}>
-          {unavailable ? 'статус временно недоступен' : snapshot ? `обновлено ${new Date(snapshot.updated_at).toLocaleTimeString('ru-RU')}` : 'проверяем…'}
+          {unavailable ? 'статус временно недоступен' : snapshot ? `обновлено ${new Date(snapshot.updated_at).toLocaleTimeString('ru-RU', { timeZone: MOSCOW_TIME_ZONE })}` : 'проверяем…'}
         </span>
       </div>
       <div className="ops-strip__cards">

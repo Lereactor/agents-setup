@@ -1,4 +1,4 @@
-import type { DayCell } from './stats'
+import { MOSCOW_TIME_ZONE, type DayCell } from './stats'
 
 /** Столбики запусков по дням; ошибки — красной верхушкой столбика. */
 export default function Sparkline({ cells, color }: { cells: DayCell[]; color: string }) {
@@ -13,7 +13,7 @@ export default function Sparkline({ cells, color }: { cells: DayCell[]; color: s
         const err = (c.errors / max) * (h - 4)
         return (
           <g key={c.key}>
-            <title>{`${c.date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}: ${c.total}`}</title>
+            <title>{`${c.date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: MOSCOW_TIME_ZONE })}: ${c.total}`}</title>
             <rect x={i * bw + 1} y={h - total} width={bw - 2} height={total} rx={1.5} fill={color} fillOpacity={0.75} />
             {c.errors > 0 && <rect x={i * bw + 1} y={h - total} width={bw - 2} height={err} rx={1.5} fill="#ef4444" />}
           </g>

@@ -33,6 +33,8 @@ AGENT = {
     "nearby": HexColor("#F06292"),
     "news": HexColor("#F0A23A"),
     "watchdog": HexColor("#8A63D2"),
+    "documents": HexColor("#39B8AA"),
+    "reminders": HexColor("#D4A017"),
 }
 
 W, H = landscape(A4)
@@ -187,6 +189,20 @@ def icon(x, y, r, kind, color):
         p.lineTo(x - k * 0.1, y - k * 0.35)
         p.lineTo(x + k * 0.45, y + k * 0.3)
         c.drawPath(p, stroke=1, fill=0)
+    elif kind == "documents":
+        c.roundRect(x - k * 0.75, y - k, k * 1.5, k * 2, k * 0.12, stroke=1, fill=0)
+        for dy in (0.5, 0.1, -0.3):
+            c.line(x - k * 0.45, y + k * dy, x + k * 0.45, y + k * dy)
+        c.circle(x + k * 0.45, y - k * 0.5, k * 0.4, stroke=1, fill=0)
+        c.line(x + k * 0.75, y - k * 0.8, x + k * 1.1, y - k * 1.15)
+    elif kind == "reminders":
+        c.circle(x, y, k, stroke=1, fill=0)
+        c.line(x, y, x, y + k * 0.6)
+        c.line(x, y, x + k * 0.5, y - k * 0.3)
+        c.line(x - k * 0.8, y + k * 0.8, x - k * 1.1, y + k * 1.1)
+        c.line(x + k * 0.8, y + k * 0.8, x + k * 1.1, y + k * 1.1)
+        c.line(x - k * 0.5, y - k * 0.85, x - k * 0.8, y - k * 1.15)
+        c.line(x + k * 0.5, y - k * 0.85, x + k * 0.8, y - k * 1.15)
     elif kind == "voice":  # микрофон
         c.roundRect(x - k * 0.35, y - k * 0.2, k * 0.7, k * 1.2, k * 0.35, stroke=0, fill=1)
         p = c.beginPath()
@@ -222,11 +238,11 @@ text(M + stringWidth("Персональные ассистенты", "B", 25) +
 text(M, H - 64, "Пишете или говорите в один чат как живому помощнику — агенты сами ищут, сравнивают и присылают "
      "готовые подборки со ссылками", "R", 11, HexColor("#C9D3F5"))
 
-stats = [("7 агентов", "5 по запросу + новости и надзор"),
+stats = [("9 агентов", "7 по запросу + новости и надзор"),
          ("10 площадок", "Ozon, WB, ВкусВилл, Туту, OSM…"),
-         ("1–3 минуты", "от сообщения до подборки с ценами"),
+         ("документы", "PDF, Word и текст по слову «почитай»"),
          ("текст и голос", "несколько задач в одном сообщении"),
-         ("24/7", "сам следит за собой и сообщает")]
+         ("24/7", "напоминания + uptime-дежурный")]
 gap = 10
 sw = (W - 2 * M - 4 * gap) / 5
 for i, (big, small) in enumerate(stats):
@@ -241,7 +257,7 @@ text(M, top, "КАК РАБОТАЕТ", "B", 10, MUTED)
 text(M + 96, top, "одно сообщение → слушатель разбирает задачи → агенты работают параллельно → ответы в тот же чат",
      "R", 8, MUTED)
 
-row_h, row_gap = 23, 4
+row_h, row_gap = 20, 3
 ax, aw = 352, 292  # колонка агентов
 rows_top = top - 14
 event_agents = [
@@ -250,9 +266,11 @@ event_agents = [
     ("travel", "Поездки", "поезда, самолёты, автобусы", ["Туту", "Aviasales"]),
     ("booking", "Жильё", "топ-3 с площадок + риски", ["Суточно", "Островок", "Авито", "Туту"]),
     ("nearby", "Рядом", "места рядом: часы, пешком", ["OSM"]),
+    ("documents", "Документы", "PDF, Word, TXT — выжимка и вопросы", ["«почитай»"]),
+    ("reminders", "Напоминания", "точное время, список, отмена", ["каждую минуту"]),
 ]
 sched_agents = [
-    ("news", "Новости", "дайджест банков и IT", ["12:00"]),
+    ("news", "Новости", "дайджест банков и IT", ["08:00 МСК"]),
     ("watchdog", "Надзиратель", "ловит циклы и зависания", ["каждые 6 ч"]),
 ]
 row_y = {}
@@ -260,11 +278,10 @@ row_y = {}
 
 def agent_row(y, key, name, desc, labels):
     box(ax, y, aw, row_h, white, LINE, 5)
-    icon(ax + 13, y + row_h / 2, 8, key, AGENT[key])
-    left = chips_right(ax + aw - 6, y + 6.5, labels, AGENT[key])
-    text(ax + 27, y + 13, name, "B", 9)
-    text(ax + 27 + stringWidth(name, "B", 9) + 6, y + 13, "", "R", 7)
-    para(ax + 27, y + 4.5, desc, left - ax - 32, size=7, color=MUTED)
+    icon(ax + 13, y + row_h / 2, 7, key, AGENT[key])
+    left = chips_right(ax + aw - 6, y + 5.5, labels, AGENT[key])
+    text(ax + 25, y + 11.5, name, "B", 8.2)
+    para(ax + 25, y + 3.8, desc, left - ax - 30, size=6.5, color=MUTED)
     row_y[key] = y + row_h / 2
 
 
@@ -289,7 +306,7 @@ for spec in sched_agents:
     y -= row_h + row_gap
 agents_bottom = y + row_h + row_gap
 
-event_mid = (row_y["shopping"] + row_y["nearby"]) / 2
+event_mid = (row_y["shopping"] + row_y[event_agents[-1][0]]) / 2
 
 # пользователь
 ux, uw = M, 132
@@ -337,7 +354,7 @@ for key, *_ in event_agents:
     c.setLineWidth(1)
     c.line(ax + aw, row_y[key], ax + aw + 10, row_y[key])
 c.setStrokeColor(LINE)
-c.line(ax + aw + 10, row_y["shopping"], ax + aw + 10, row_y["nearby"])
+c.line(ax + aw + 10, row_y["shopping"], ax + aw + 10, row_y[event_agents[-1][0]])
 arrow(ax + aw + 10, event_mid, rx - 3, event_mid, INK)
 
 # журнал + сайт
@@ -417,16 +434,16 @@ tw = W - M - tx0
 box(tx0, bottom - 6, tw, ex_top - bottom + 14, PANEL, None)
 text(tx0 + 14, ex_top - 6, "ТЕХНИКА", "B", 10, MUTED)
 tech = [
-    ("Мозг агентов", "Kimi K3 на своём runner (VPS) — свой сценарий у агента"),
-    ("Данные", "MCP ВкусВилла, Туту, Aviasales · OpenStreetMap · Apify: Ozon, WB, Я.Маркет, Островок, Авито · API Суточно"),
-    ("Слушатель", "Cloudflare Worker + Workers AI: голос, задачи по смыслу, пауза"),
-    ("Журнал и сайт", "Google Sheets + сайт на GitHub Pages, данные зашифрованы"),
-    ("Безопасность", "ключи — в секретах Cloudflare и runner.env на VPS, ничего не оплачивается автоматически"),
+    ("Мозг и слушатель", "Kimi K3 на VPS · Cloudflare Worker + Workers AI"),
+    ("Данные", "MCP ВкусВилла, Туту, Aviasales · OpenStreetMap · Apify · API Суточно"),
+    ("Документы и напоминания", "PDF/DOCX/TXT до 10 МБ, текст не в журнале · Москва UTC+3"),
+    ("Надзор, журнал и сайт", "Uptime без LLM · Google Sheets + GitHub Pages"),
+    ("Безопасность", "ключи — в секретах Cloudflare и runner.env; автоматических оплат нет"),
 ]
-yy = ex_top - 24
+yy = ex_top - 22
 for head, body in tech:
-    text(tx0 + 14, yy, head, "B", 8.3, NAVY)
-    yy = para(tx0 + 14, yy - 10.5, body, tw - 28, size=7.4, color=MUTED, lead=9.1) - 4
+    text(tx0 + 14, yy, head, "B", 8.1, NAVY)
+    yy = para(tx0 + 14, yy - 10, body, tw - 28, size=7.2, color=MUTED, lead=8.1) - 1.5
 
 # подвал
 icon(M + 6, bottom - 12, 6, "ok", GREEN)
