@@ -51,7 +51,33 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
     emoji: '📍',
     color: '#f06292',
     trigger: 'по сообщению: «кафе», «аптека», «… рядом», геопозиция',
-    description: 'Места поблизости в 2ГИС: рейтинг, часы работы, сколько идти пешком',
+    description: 'Места в OpenStreetMap: адрес, часы из OSM и сколько идти пешком',
+  },
+  documents: {
+    id: 'documents',
+    title: 'Документы',
+    emoji: '📄',
+    color: '#64d8cb',
+    trigger: 'файл до 10 МБ с уникальным словом «почитай»',
+    description: 'Читает PDF, DOCX, TXT, MD, CSV, JSON, HTML и RTF; содержимое не пишет в журнал',
+  },
+  reminders: {
+    id: 'reminders',
+    title: 'Напоминания',
+    emoji: '⏰',
+    color: '#ffd166',
+    trigger: '«напомни…», «мои напоминания», «отмени…»',
+    schedule: '⏰ доставка каждую минуту',
+    description: 'Kimi разбирает дату и время; планировщик на VPS доставляет без LLM',
+  },
+  uptime: {
+    id: 'uptime',
+    title: 'Uptime',
+    emoji: '🚨',
+    color: '#ff5c7a',
+    trigger: 'проверка Worker, Runner и сайта каждые 5 минут',
+    schedule: '⏰ каждые 5 мин · только сбой/восстановление',
+    description: 'Два подряд сбоя → алерт в Telegram; после восстановления — ещё один',
   },
   'news-digest': {
     id: 'news-digest',
@@ -73,7 +99,7 @@ export const AGENTS: Record<AgentId, AgentMeta> = {
   },
 }
 
-export const AGENT_ORDER: AgentId[] = ['shopping', 'grocery', 'travel', 'booking', 'nearby', 'news-digest', 'watchdog']
+export const AGENT_ORDER: AgentId[] = ['shopping', 'grocery', 'travel', 'booking', 'nearby', 'documents', 'reminders', 'news-digest', 'watchdog', 'uptime']
 
 export function isAgentId(value: string): value is AgentId {
   return value in AGENTS

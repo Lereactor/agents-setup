@@ -6,6 +6,7 @@ import AgentPanel from './AgentPanel'
 import { AGENT_ORDER, isAgentId } from './agents'
 import Heatmap from './Heatmap'
 import HistoryFeed from './HistoryFeed'
+import OperationalStatus from './OperationalStatus'
 import { DEFAULT_POSITIONS, baseEdges, edgeAgents, sourceNodes, type ParticleEdgeData } from './layout'
 import ParticleEdge from './ParticleEdge'
 import SourceNode from './SourceNode'
@@ -39,6 +40,9 @@ const SOURCES_OF: Record<AgentId, string[]> = {
   travel: ['telegram', 'worker'],
   booking: ['telegram', 'worker'],
   nearby: ['telegram', 'worker'],
+  documents: ['telegram', 'worker'],
+  reminders: ['telegram', 'worker'],
+  uptime: ['worker'],
   'news-digest': [],
   watchdog: ['worker'],
 }
@@ -324,6 +328,8 @@ export default function MyAgentsView() {
           )}
         </div>
       </header>
+
+      <OperationalStatus />
 
       <div className="ma-canvas" ref={canvasRef}>
         {log.error === 'not_configured' && (

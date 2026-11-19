@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "enabledTools": ["resolve-library-id", "query-docs"],
+      "startupTimeoutMs": 30000,
+      "toolTimeoutMs": 60000
+    },
+    "deepwiki": {
+      "url": "https://mcp.deepwiki.com/mcp",
+      "enabledTools": ["ask_wiki_question", "read_wiki_contents", "read_wiki_structure"],
+      "startupTimeoutMs": 30000,
+      "toolTimeoutMs": 60000
+    }
+  }
+}

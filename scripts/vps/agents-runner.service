@@ -1,0 +1,17 @@
+[Unit]
+Description=Agents runner (Kimi/Moonshot, replacement for Claude Routines)
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/agents/runner.env
+WorkingDirectory=/opt/agents
+ExecStart=/usr/local/bin/node /opt/agents/index.js
+Restart=always
+RestartSec=5
+MemoryMax=500M
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/agents /var/lib/agents
+
+[Install]
+WantedBy=multi-user.target

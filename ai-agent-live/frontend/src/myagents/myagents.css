@@ -38,10 +38,11 @@
 /* ===== Каркас вкладки «Мои агенты» ===== */
 .ma-shell {
   display: grid;
-  grid-template-rows: auto 1fr 260px;
+  grid-template-rows: auto auto 1fr 260px;
   grid-template-columns: 1fr 340px;
   grid-template-areas:
     'header header'
+    'ops ops'
     'canvas panel'
     'bottom bottom';
   height: 100%;
@@ -1518,5 +1519,94 @@
   .ma-canvas {
     height: 115vw; /* вся схема — на ширину экрана, без прокрутки */
     max-height: 78vh;
+  }
+}
+
+.ops-strip {
+  grid-area: ops;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 16px;
+  background: #0f1420;
+  overflow-x: auto;
+}
+.ops-strip__title {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  font-size: 12px;
+}
+.ops-strip__title span {
+  font-size: 10px;
+}
+.ops-strip__cards {
+  display: flex;
+  gap: 7px;
+}
+.ops-card {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 142px;
+  padding: 6px 9px;
+  border: 1px solid #273147;
+  border-radius: 8px;
+  background: #141b29;
+}
+.ops-card__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8b93a7;
+}
+.ops-card.is-ok .ops-card__dot {
+  background: #3fb950;
+  box-shadow: 0 0 8px #3fb95088;
+}
+.ops-card.is-down .ops-card__dot {
+  background: #ef4444;
+}
+.ops-card strong,
+.ops-card small {
+  display: block;
+  white-space: nowrap;
+}
+.ops-card strong {
+  font-size: 11px;
+}
+.ops-card small {
+  margin-top: 1px;
+  color: #8b93a7;
+  font-size: 9px;
+}
+.ops-strip__meta {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: auto;
+  font-size: 9px;
+}
+.ops-error {
+  color: #ff8a65;
+}
+@media (max-width: 900px) {
+  .ops-strip {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .ops-strip__cards {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 3px;
+  }
+  .ops-strip__meta {
+    width: 100%;
+    margin-left: 0;
   }
 }

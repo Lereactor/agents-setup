@@ -22,7 +22,6 @@
 //   WATCHDOG_ADMIN_TOKEN           — ключ надзирателя для /admin/* (пауза агента,
 //                                    повтор зависшего запроса, статус)
 //   APIFY_TOKEN                    — для ежедневной проверки кредита Apify (cron)
-//   DGIS_API_KEY                   — ежедневная проверка ключа 2ГИС (cron)
 //   (исторические ROUTINE_TRIGGER_* для Claude Routines больше не нужны —
 //    Anthropic заблокирован в регионе, агенты переехали на раннер, см. runner/)
 //
@@ -77,7 +76,7 @@ const BOOKING_CONTEXT_EXACT = ['дом', 'домик', 'домики', 'дача
 const BOOKING_CONTEXT_PREFIXES = ['комнат', 'ноч', 'сутк', 'суток', 'выходн'];
 const BOOKING_VERB_BLOCKERS = ['столик', 'билет', 'место', 'места', 'машин', 'авто', 'деньг', 'видео', 'фото'];
 const TRAVEL_EXACT_WORDS = ['жд', 'ржд'];
-// «Рядом» (2ГИС). Слово-место — сильный признак: «найди кафе рядом с отелем» уходит сюда, а не к
+// «Рядом» (OpenStreetMap). Слово-место — сильный признак: «найди кафе рядом с отелем» уходит сюда, а не к
 // жилью или покупкам. Слово близости («рядом», «поблизости») — слабый: только если нет слов других
 // агентов («отель рядом с метро» — это жильё).
 const NEARBY_PLACE_PREFIXES = [
@@ -96,8 +95,10 @@ const AGENT_LABELS = {
   grocery: '🥕 Продукты (ВкусВилл)',
   travel: '🚆 Поездки (Туту)',
   booking: '🏡 Жильё (Суточно, Островок, Авито, Туту)',
-  nearby: '📍 Рядом (2ГИС)',
-  shopping: '🛒 Покупки (Ozon, WB, Я.Маркет)'
+  nearby: '📍 Рядом (OpenStreetMap)',
+  shopping: '🛒 Покупки (Ozon, WB, Я.Маркет)',
+  documents: '📄 Документы',
+  reminders: '⏰ Напоминания'
 };
 // «включи поездки» — снять паузу, которую поставил надзиратель.
 const AGENT_NAMES = {
@@ -105,8 +106,13 @@ const AGENT_NAMES = {
   travel: ['поездки', 'туту', 'travel'],
   booking: ['жильё', 'жилье', 'booking'],
   nearby: ['рядом', 'nearby'],
-  shopping: ['покупки', 'shopping']
+  shopping: ['покупки', 'shopping'],
+  documents: ['документы', 'документ', 'documents'],
+  reminders: ['напоминания', 'напоминание', 'напоминалку', 'reminders']
 };
+const DOCUMENT_TRIGGER = /(^|[^a-zа-яё0-9_])почитай(?=$|[^a-zа-яё0-9_])/iu;
+const DOCUMENT_NAME = /\.(pdf|docx|txt|md|csv|json|html?|rtf)$/i;
+const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 // Запуски храним 2 суток — надзирателю этого хватает, чтобы найти и повторить зависший.
 const FIRE_TTL_S = 172800;
 
@@ -134,11 +140,11 @@ const HELP_TEXT = `🦁 Шпаргалка по агентам
 • отель в Сочи на 3 ночи с пятницы, с завтраком
 Не написал даты или сколько гостей — считаю: ближайшие выходные, 2 гостя (и пишу это в ответе).
 
-📍 Рядом (2ГИС) — «кафе», «ресторан», «кофейня», «аптека», «банкомат», «где поесть», «… рядом / поблизости»
+📍 Рядом (OpenStreetMap) — «кафе», «ресторан», «кофейня», «аптека», «банкомат», «где поесть», «… рядом / поблизости»
 • кофейня рядом с метро Чистые пруды
 • где пообедать недорого у Курского вокзала
 • пришли геопозицию (скрепка → Геопозиция), потом — «аптека рядом»
-Ответ: топ-5 с рейтингом, часами работы и сколько идти пешком.
+Ответ: места с адресами, часами работы (если указаны в OSM) и сколько идти пешком.
 
 🛒 Покупки (Ozon, WB, Я.Маркет) — «купи», «найди», «закажи»
 • найди наушники Sony WH-1000XM5
@@ -147,8 +153,17 @@ const HELP_TEXT = `🦁 Шпаргалка по агентам
 • фото товара с подписью «найди такое»
 Ответ: топ-5 с ценами, рейтингом и отзывами по трём площадкам + совет, что взять (1–3 мин).
 
+📄 Документы — прикрепи PDF, DOCX, TXT, MD, CSV, JSON, HTML или RTF до 10 МБ со словом «почитай»
+• почитай — краткая выжимка документа
+• почитай, какие здесь штрафы и сроки — ответ на вопрос по документу
+
+⏰ Напоминания — «напомни», «мои напоминания», «отмени напоминание»
+• напомни завтра в 15:00 позвонить маме
+• напомни через 10 минут выключить духовку
+
 📰 Новости — сами, каждый день в 08:00
-🛡️ Надзиратель — фоном каждые 6 часов, отчёт в 09:00. Зациклившегося агента ставит на паузу, зависший запрос повторяет. Снять паузу — «включи поездки» (продукты, покупки, жильё).
+🛡️ Надзиратель — фоном каждые 6 часов, отчёт в 09:00. Зациклившегося агента ставит на паузу, зависший запрос повторяет. Снять паузу — «включи поездки» (продукты, покупки, жильё, документы, напоминания).
+🚨 Uptime — проверяет сервисы каждые 5 минут и пишет только при сбое и восстановлении.
 
 🧩 Несколько дел в одном сообщении — разберу по агентам:
 • закажи во вкусвилл завтрак на двоих. А ещё купи футбольный мяч. Завтра еду в Казань — найди отель
@@ -176,6 +191,49 @@ function json(obj) {
     status: 200,
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+function publicJson(obj) {
+  return new Response(JSON.stringify(obj), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store'
+    }
+  });
+}
+
+// Публичная телеметрия для сайта: только технические состояния и счётчики,
+// без chat_id, текстов сообщений/документов, токенов и секретных URL.
+async function operationalStatus(env) {
+  const paused = [];
+  for (const agent of Object.keys(AGENT_LABELS)) {
+    if (await getPause(env, agent)) paused.push(agent);
+  }
+  let runner = { ok: false, agents: [], services: [], reminders: { pending: 0 } };
+  try {
+    const healthUrl = env.RUNNER_URL.replace(/\/run\/?$/, '/health');
+    const response = await fetch(healthUrl, { signal: AbortSignal.timeout(8000) });
+    const data = await response.json();
+    runner = {
+      ok: response.ok && data.ok === true,
+      model: String(data.model || ''),
+      agents: Array.isArray(data.agents) ? data.agents : [],
+      services: Array.isArray(data.services) ? data.services.map((service) => ({
+        name: String(service.name || ''),
+        ok: service.ok === true,
+        down: service.down === true,
+        checked_at: service.checked_at || null,
+        detail: String(service.detail || '').slice(0, 100),
+        failures: Number(service.failures || 0)
+      })) : [],
+      reminders: { pending: Number(data.reminders && data.reminders.pending || 0) }
+    };
+  } catch (error) {
+    runner.error = 'unavailable';
+  }
+  return { ok: true, updated_at: new Date().toISOString(), worker: { ok: true }, runner, paused };
 }
 
 // Whisper иногда пишет составные слова с пробелом ("Вкус Вилл" вместо
@@ -225,9 +283,14 @@ function matchesNearbyNear(text) {
   return wordsOf(text).some((word) => NEARBY_NEAR_PREFIXES.some((prefix) => word.startsWith(prefix)));
 }
 
+function matchesReminderWords(text) {
+  return wordsOf(text).some((word) => word.startsWith('напомн') || word.startsWith('напоминан') || word.startsWith('напоминалк'));
+}
+
 // Решает, какому Routine адресовать сообщение (или null, если ни один
 // набор триггер-слов не совпал).
 function detectTarget(text) {
+  if (matchesReminderWords(text)) return 'reminders';
   if (matchesTriggerWords(text, GROCERY_TRIGGER_WORDS)) return 'grocery';
   if (matchesNearbyPlace(text)) return 'nearby';
   if (matchesBookingWords(text)) return 'booking';
@@ -247,9 +310,10 @@ const AGENT_SCOPE = {
   travel: 'билеты на поезд, самолёт, автобус, электричку',
   booking: 'жильё (отели, квартиры, дома)',
   nearby: 'места поблизости (кафе, аптеки, банкоматы) и как дойти',
-  shopping: 'товары на маркетплейсах'
+  shopping: 'товары на маркетплейсах',
+  reminders: 'создание, список и отмена напоминаний'
 };
-const AGENT_ORDER = ['grocery', 'nearby', 'booking', 'travel', 'shopping'];
+const AGENT_ORDER = ['grocery', 'nearby', 'booking', 'travel', 'reminders', 'shopping'];
 
 function splitSentences(text) {
   return text
@@ -260,6 +324,7 @@ function splitSentences(text) {
 }
 
 function sentenceTargets(sentence) {
+  if (matchesReminderWords(sentence)) return ['reminders'];
   if (matchesTriggerWords(sentence, GROCERY_TRIGGER_WORDS)) return ['grocery'];
   if (matchesNearbyPlace(sentence)) return ['nearby'];
   const targets = [];
@@ -365,9 +430,10 @@ const AI_ROUTER_PROMPT = `Ты — маршрутизатор личного Tel
 - travel — билеты на поезд, самолёт, автобус, электричку; как добраться из города в город;
 - booking — жильё: отель, квартира, дом, коттедж на ночь или сутки; где остановиться, переночевать;
 - shopping — товары на маркетплейсах (Ozon, Wildberries, Я.Маркет): техника, одежда, вещи, подарки, сравнить цены на товар;
-- nearby — места поблизости: кафе, рестораны, кофейни, бары, аптеки, банкоматы, заправки, музеи; где поесть рядом, как дойти.
+- nearby — места поблизости: кафе, рестораны, кофейни, бары, аптеки, банкоматы, заправки, музеи; где поесть рядом, как дойти;
+- reminders — напомнить о деле в указанное время, показать или отменить напоминания.
 Правила:
-- Задача — только явная просьба найти, подобрать, купить, заказать, забронировать. Рассказ, мнение, жалоба, благодарность, вопрос о прошлом, шутка, болтовня — не задача: tasks пустой.
+- Задача — только явная просьба найти, подобрать, купить, заказать, забронировать или напомнить. Рассказ, мнение, жалоба, благодарность, вопрос о прошлом, шутка, болтовня — не задача: tasks пустой.
 - В одном сообщении может быть несколько задач для разных агентов — каждую отдельно, словами пользователя.
 - Не уверен — tasks пустой. confidence — от 0 до 1.
 Примеры:
@@ -378,7 +444,7 @@ const AI_ROUTER_PROMPT = `Ты — маршрутизатор личного Tel
 «куда сходить выпить кофе у Патриарших» → {"tasks":[{"agent":"nearby","text":"куда сходить выпить кофе у Патриарших","confidence":0.85}]}
 «вчера ездил в Тверь, было классно» → {"tasks":[]}
 «отель был ужасный» → {"tasks":[]}
-Ответь только JSON без пояснений: {"tasks":[{"agent":"grocery|travel|booking|shopping|nearby","text":"…","confidence":0.0}]}`;
+Ответь только JSON без пояснений: {"tasks":[{"agent":"grocery|travel|booking|shopping|nearby|reminders","text":"…","confidence":0.0}]}`;
 
 function aiRouterEligible(text) {
   if (!text || text.trim().length < 8) return false;
@@ -502,26 +568,33 @@ function largestPhotoFileId(photoArray) {
   return photoArray[photoArray.length - 1].file_id;
 }
 
-// Достаёт из сообщения: текст-кандидат для проверки триггера, file_id фото
-// (если есть) и file_id голосового (если есть). Голосовое обрабатывается
-// отдельной веткой в fetch(), т.к. требует асинхронной транскрипции прежде
-// чем можно будет определить target.
+// Документ можно приложить с подписью «почитай …» или отправить такой подписью
+// реплаем на ранее приложенный файл. Без этого слова файл не уходит агенту.
 function extractCandidate(message) {
-  if (!message) return { text: '', photoFileId: '', voiceFileId: '' };
+  const empty = { text: '', photoFileId: '', voiceFileId: '', document: null };
+  if (!message) return empty;
+  const reply = message.reply_to_message || {};
+  const document = message.document || (message.text && reply.document);
+  if (document) {
+    return {
+      ...empty,
+      text: message.caption || message.text || '',
+      document: {
+        fileId: document.file_id,
+        fileName: document.file_name || '',
+        mimeType: document.mime_type || '',
+        fileSize: Number(document.file_size || 0)
+      }
+    };
+  }
   if (message.text) {
-    return { text: message.text, photoFileId: '', voiceFileId: '' };
+    return { ...empty, text: message.text, photoFileId: reply.photo ? largestPhotoFileId(reply.photo) : '' };
   }
-  if (message.voice) {
-    return { text: '', photoFileId: '', voiceFileId: message.voice.file_id };
-  }
+  if (message.voice) return { ...empty, voiceFileId: message.voice.file_id };
   if (message.photo && message.caption) {
-    return { text: message.caption, photoFileId: largestPhotoFileId(message.photo), voiceFileId: '' };
+    return { ...empty, text: message.caption, photoFileId: largestPhotoFileId(message.photo) };
   }
-  // Реплай текстом на более раннее фото
-  if (message.reply_to_message && message.reply_to_message.photo && message.text) {
-    return { text: message.text, photoFileId: largestPhotoFileId(message.reply_to_message.photo), voiceFileId: '' };
-  }
-  return { text: '', photoFileId: '', voiceFileId: '' };
+  return empty;
 }
 
 // whisper-large-v3-turbo на Workers AI требует 'audio' как base64-строку
@@ -535,6 +608,13 @@ function bytesToBase64(bytes) {
     binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 // Скачивает голосовое (.oga, Opus/OGG) через Bot API и прогоняет через
@@ -578,11 +658,13 @@ async function sendTelegramMessage(env, { chatId, text, replyToMessageId, busine
   if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
   if (businessConnectionId) body.business_connection_id = businessConnectionId;
   if (disableWebPagePreview) body.disable_web_page_preview = true;
-  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
+  const result = await response.json().catch(() => ({ ok: false, description: 'non-JSON Telegram response' }));
+  return { ok: response.ok && result.ok === true, error: result.description || '' };
 }
 
 // Запуск агента: раннер на своём VPS (замена Claude Code Routines — Anthropic
@@ -606,16 +688,34 @@ async function triggerRoutine(env, target, params) {
 // Авторизация: Bearer RUNNER_TOKEN (тот же секрет, что у раннера).
 async function handleRunnerTelegram(env, body) {
   if (body.kind === 'sendMessage') {
-    await sendTelegramMessage(env, {
+    const result = await sendTelegramMessage(env, {
       chatId: body.chatId,
       text: body.text,
       replyToMessageId: body.replyToMessageId,
       businessConnectionId: body.businessConnectionId,
       disableWebPagePreview: body.disableWebPagePreview
     });
-    return { ok: true };
+    return { ok: result.ok, error: result.error || undefined };
   }
-  if (body.kind === 'getFile') {
+  if (body.kind === 'sendDocument') {
+    const bytes = base64ToBytes(String(body.dataBase64 || ''));
+    if (!bytes.length || bytes.length > DOCUMENT_MAX_BYTES) return { ok: false, error: 'document size must be 1 byte..10 MB' };
+    const fileName = String(body.fileName || 'document.txt').replace(/[^\w.\-а-яё]+/gi, '_').slice(-100);
+    const form = new FormData();
+    form.append('chat_id', String(body.chatId));
+    form.append('document', new Blob([bytes], { type: 'application/octet-stream' }), fileName);
+    if (body.caption) form.append('caption', String(body.caption).slice(0, 1000));
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`, { method: 'POST', body: form });
+    const data = await response.json();
+    const document = data.result && data.result.document;
+    return {
+      ok: response.ok && data.ok === true,
+      message_id: data.result && data.result.message_id,
+      document: document ? { file_id: document.file_id, file_name: document.file_name, file_size: document.file_size } : null,
+      error: data.ok === false ? String(data.description || 'sendDocument failed').slice(0, 200) : undefined
+    };
+  }
+  if (body.kind === 'getFile' || body.kind === 'getDocument') {
     const resp = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -627,6 +727,10 @@ async function handleRunnerTelegram(env, body) {
     const fileResp = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${filePath}`);
     if (!fileResp.ok) return { ok: false, error: 'file download failed: ' + fileResp.status };
     const bytes = new Uint8Array(await fileResp.arrayBuffer());
+    if (body.kind === 'getDocument') {
+      if (bytes.length > DOCUMENT_MAX_BYTES) return { ok: false, error: 'document exceeds 10 MB' };
+      return { ok: true, filePath, size: bytes.length, dataBase64: bytesToBase64(bytes) };
+    }
     const b64 = bytesToBase64(bytes);
     const mime = filePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
     return { ok: true, filePath, size: bytes.length, dataUrl: `data:${mime};base64,${b64}` };
@@ -668,7 +772,7 @@ async function dispatch(env, target, params, ackText, recordExtra = {}) {
   if (ackText) await reply(ackText);
   if (target === 'nearby') params = { ...params, location: await lastLocation(env, params.chat_id) };
   const fireResult = await triggerRoutine(env, target, params);
-  if (env.UPDATE_CACHE && fireResult.status === 200) {
+  if (env.UPDATE_CACHE && (fireResult.status === 200 || fireResult.status === 202)) {
     const at = Date.now();
     await env.UPDATE_CACHE.put(`fire:${target}:${at}`, JSON.stringify({ at, params, ...recordExtra }), { expirationTtl: FIRE_TTL_S });
   }
@@ -716,52 +820,6 @@ function apifyAlertText(credit, level) {
 }
 
 // dryRun — только посчитать и показать текст (для /admin/apify), без отправки и отметки в KV.
-// Разовые напоминания в чат — тем же ежедневным cron (09:00 МСК), каждое один раз.
-const REMINDERS = [
-  {
-    id: '2gis-demo-2026-11',
-    date: '2026-11-10',
-    text:
-      '⏰ 13 ноября кончается бесплатный демо-ключ 2ГИС (выдан 14 октября на 30 дней).\n' +
-      'Без него перестанут работать 📍 Рядом и «🚇 метро рядом» в 🏡 Жилье.\n' +
-      'Варианты: 1) платный тариф 2ГИС; 2) бесплатные карты OpenStreetMap — без рейтингов и часов работы; ' +
-      '3) отключить 2ГИС. Напиши Claude, что выбираем.'
-  }
-];
-
-async function sendReminders(env, today = new Date().toISOString().slice(0, 10)) {
-  const sent = [];
-  for (const reminder of REMINDERS) {
-    if (reminder.date !== today) continue;
-    const key = `reminder:${reminder.id}`;
-    if (env.UPDATE_CACHE && (await env.UPDATE_CACHE.get(key))) continue;
-    await sendTelegramMessage(env, { chatId: env.ALERT_CHAT_ID || ALERT_CHAT_ID, text: reminder.text });
-    if (env.UPDATE_CACHE) await env.UPDATE_CACHE.put(key, '1', { expirationTtl: 30 * 86400 });
-    sent.push(reminder.id);
-  }
-  return sent;
-}
-
-// Ключ 2ГИС: раз в день пробный запрос к каталогу. Перестал работать (кончился демо, лимит) —
-// одно предупреждение в чат, повтор не чаще раза в 3 дня.
-async function check2gisKey(env, { dryRun = false } = {}) {
-  if (!env.DGIS_API_KEY) return { ok: false, error: 'no DGIS_API_KEY' };
-  const resp = await fetch(
-    `https://catalog.api.2gis.com/3.0/items?q=${encodeURIComponent('кафе')}&point=37.6173,55.7558&radius=500&page_size=1&key=${env.DGIS_API_KEY}`
-  );
-  const data = await resp.json().catch(() => ({}));
-  const code = data.meta && data.meta.code;
-  if (code === 200) return { ok: true, code };
-  const text =
-    `⛔ Ключ 2ГИС не работает (код ${code || resp.status}${data.meta && data.meta.error ? ': ' + data.meta.error.message : ''}).\n` +
-    '📍 Рядом и «метро рядом» в 🏡 Жилье сейчас без карт. Напиши Claude — продлим ключ или переключимся на OpenStreetMap.';
-  if (dryRun) return { ok: false, code, alert: text };
-  if (env.UPDATE_CACHE && (await env.UPDATE_CACHE.get('alert:2gis-key'))) return { ok: false, code, alert: 'already sent' };
-  await sendTelegramMessage(env, { chatId: env.ALERT_CHAT_ID || ALERT_CHAT_ID, text });
-  if (env.UPDATE_CACHE) await env.UPDATE_CACHE.put('alert:2gis-key', '1', { expirationTtl: 3 * 86400 });
-  return { ok: false, code, alert: text, sent: true };
-}
-
 async function checkApifyCredit(env, { dryRun = false } = {}) {
   if (!env.APIFY_TOKEN) return { ok: false, error: 'no APIFY_TOKEN' };
   const credit = await apifyCredit(env);
@@ -799,9 +857,6 @@ async function handleAdmin(env, action, body) {
     }
     return { ok: true, paused };
   }
-  // 2gis — проверить ключ 2ГИС без отправки; reminders {date} — что ушло бы в этот день (без отправки).
-  if (action === '2gis') return check2gisKey(env, { dryRun: true });
-  if (action === 'reminders') return { ok: true, due: REMINDERS.filter((r) => r.date === (body.date || new Date().toISOString().slice(0, 10))) };
   // apify {send?} — расход кредита Apify и текст предупреждения; send: true — отправить как по расписанию.
   if (action === 'apify') return checkApifyCredit(env, { dryRun: body.send !== true });
   // route {text} — как слушатель разобрал бы текст (слова, затем модель), без запуска агентов.
@@ -853,6 +908,41 @@ async function handleAdmin(env, action, body) {
   }
 
   return { ok: false, error: 'unknown action' };
+}
+
+async function processDocumentMessage(env, message, update, candidate) {
+  const document = candidate.document;
+  const businessConnectionId = update.business_message ? (message.business_connection_id || '') : '';
+  const notify = (text) => sendTelegramMessage(env, {
+    chatId: message.chat.id,
+    text,
+    replyToMessageId: message.message_id,
+    businessConnectionId
+  });
+  if (!DOCUMENT_NAME.test(document.fileName)) {
+    await notify('⚠️ Этот формат не читаю. Поддерживаю PDF, DOCX, TXT, MD, CSV, JSON, HTML и RTF до 10 МБ.');
+    return { ok: true, skipped: 'unsupported document' };
+  }
+  if (document.fileSize > DOCUMENT_MAX_BYTES) {
+    await notify('⚠️ Файл больше 10 МБ. Уменьши его или раздели на части.');
+    return { ok: true, skipped: 'document too large' };
+  }
+  try {
+    const result = await dispatch(env, 'documents', {
+      chat_id: message.chat.id,
+      message_id: message.message_id,
+      business_connection_id: businessConnectionId,
+      text: candidate.text,
+      document_file_id: document.fileId,
+      file_name: document.fileName,
+      file_size: document.fileSize
+    }, `📄 Принял «${document.fileName}». Прочитаю и отвечу; содержимое не сохраняю в журнал.`);
+    if (result.status >= 400) throw new Error(`runner HTTP ${result.status}`);
+    return { ok: true, triggered: !result.paused, target: 'documents', fire_status: result.status, paused: result.paused };
+  } catch (error) {
+    await notify('⚠️ Не удалось запустить чтение документа. Попробуй ещё раз через минуту.');
+    return { ok: false, target: 'documents', error: String(error).slice(0, 200) };
+  }
 }
 
 // Ветка для голосовых сообщений: транскрипция → определение target → ack/
@@ -916,6 +1006,9 @@ async function processVoiceMessage(env, message, update, candidate) {
 
 export default {
   async fetch(request, env, ctx) {
+    if (request.method === 'GET' && new URL(request.url).pathname === '/status.json') {
+      return publicJson(await operationalStatus(env));
+    }
     if (request.method === 'GET' && new URL(request.url).searchParams.get('debug') === '1') {
       const last = env.UPDATE_CACHE ? await env.UPDATE_CACHE.get('debug:last_raw') : null;
       return json({ last_raw_update: last ? JSON.parse(last) : null });
@@ -1017,6 +1110,13 @@ export default {
 
     const candidate = extractCandidate(message);
 
+    if (candidate.document) {
+      if (!DOCUMENT_TRIGGER.test(candidate.text)) return json({ ok: true, skipped: 'document without почитай' });
+      if (isDebug) return json(await processDocumentMessage(env, message, update, candidate));
+      ctx.waitUntil(processDocumentMessage(env, message, update, candidate));
+      return json({ ok: true, processing: 'document' });
+    }
+
     // Голосовое: target неизвестен до транскрипции, поэтому отдельная
     // асинхронная ветка (сама шлёт ack/ошибку и решает, запускать ли Routine).
     if (candidate.voiceFileId) {
@@ -1080,6 +1180,6 @@ export default {
 
   // Cron Triggers (Settings → Triggers): «0 6 * * *» — проверка кредита Apify.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(Promise.allSettled([checkApifyCredit(env), sendReminders(env)]));
+    ctx.waitUntil(checkApifyCredit(env));
   }
 };

@@ -1,0 +1,10 @@
+{
+  "name": "personal-agents-runner",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Runtime dependencies for the VPS agents runner",
+  "dependencies": {
+    "mammoth": "1.13.0",
+    "pdf-parse": "2.4.5"
+  }
+}

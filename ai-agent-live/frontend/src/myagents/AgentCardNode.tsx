@@ -34,6 +34,9 @@ const ART: Record<AgentId, (p: { active: boolean }) => JSX.Element> = {
   travel: TravelArt,
   booking: BookingArt,
   nearby: NearbyArt,
+  documents: NewsArt,
+  reminders: TravelArt,
+  uptime: WatchdogArt,
   'news-digest': NewsArt,
   watchdog: WatchdogArt,
 }
