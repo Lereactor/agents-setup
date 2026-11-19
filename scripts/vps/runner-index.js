@@ -792,6 +792,12 @@ async function runAgent(job) {
       }
       messages.push(msg);
       const toolCalls = msg.tool_calls || [];
+      if (ctx.agent === 'documents') {
+        const trace = toolCalls.length
+          ? toolCalls.map((call) => (call.function || {}).name || 'unknown').join(',')
+          : `no-tools, content-chars=${String(msg.content || '').length}`;
+        console.log(`[trace] ${ctx.runId} step=${step + 1} ${trace}`);
+      }
       if (!toolCalls.length) {
         // модель закончила без финального log → дозалогируем
         if (!ctx.finalLogged) {
