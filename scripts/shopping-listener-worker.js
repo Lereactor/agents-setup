@@ -1119,8 +1119,8 @@ export default {
           businessConnectionId: update.business_message ? (message.business_connection_id || '') : ''
         });
         if (isDebug) {
-          await hint;
-          return json({ ok: true, skipped: 'document without почитай', hint_sent: true });
+          const delivered = await hint;
+          return json({ ok: delivered.ok, skipped: 'document without почитай', hint_sent: delivered.ok, error: delivered.error || undefined });
         }
         ctx.waitUntil(hint);
         return json({ ok: true, skipped: 'document without почитай' });
