@@ -103,7 +103,11 @@ export default function HistoryFeed({ runs, day, agentFilter, onAgentFilter }: P
             </li>
           )
         })}
-        {!filtered.length && <li className="feed__empty dim">ничего не найдено</li>}
+        {!filtered.length && (
+          <li className="feed__empty dim">
+            {agentFilter === 'uptime' ? 'Uptime не пишет успешные проверки в историю — живой статус показан выше' : 'ничего не найдено'}
+          </li>
+        )}
       </ul>
       {hover && (
         <div className="feed__hover" style={{ left: hover.left, top: hover.top }}>

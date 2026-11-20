@@ -950,7 +950,7 @@ for i, (name, detail) in enumerate((("Worker", "HTTP"), ("Runner", "/health"), (
     text(x + 8, 176, detail, "R", 6.8, MUTED)
 text(M + 14, 140, "Self-test FAIL → FAIL → OK пройден на реальном мониторинге", "B", 7.4, AGENT["uptime"])
 text(M + 14, 116, "Состояние хранится на VPS · повторные алерты не спамят", "R", 7.2, MUTED)
-text(M + 14, 99, "/status.json на сайте показывает 9 агентов и 3 сервиса", "R", 7.2, MUTED)
+text(M + 14, 99, "Виджет: 3/3, HTTP и время проверки · успехи не пишутся в Sheets", "R", 7.2, MUTED)
 
 zone(right_x, lower_y, col_w, lower_h, NAVY, "РАЗРАБОТКА · Context7 + DeepWiki", "MCP в Kimi Code")
 para(right_x + 14, 239, "Context7 — актуальная документация библиотек: сначала resolve-library-id, затем query-docs. "

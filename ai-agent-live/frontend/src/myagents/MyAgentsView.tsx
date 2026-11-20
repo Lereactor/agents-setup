@@ -6,7 +6,7 @@ import AgentPanel from './AgentPanel'
 import { AGENT_ORDER, isAgentId } from './agents'
 import Heatmap from './Heatmap'
 import HistoryFeed from './HistoryFeed'
-import OperationalStatus from './OperationalStatus'
+import OperationalStatus, { useOperationalStatus } from './OperationalStatus'
 import { DEFAULT_POSITIONS, baseEdges, edgeAgents, sourceNodes, type ParticleEdgeData } from './layout'
 import ParticleEdge from './ParticleEdge'
 import SourceNode from './SourceNode'
@@ -82,6 +82,7 @@ function useNarrow(): boolean {
 
 export default function MyAgentsView() {
   const narrow = useNarrow()
+  const operational = useOperationalStatus()
   const [positions, setPositions] = useState<Positions>(loadPositions)
   const [layoutKey, setLayoutKey] = useState(0)
   // Схема всегда целиком на экране: вписываем заново при любом изменении размера холста
@@ -268,6 +269,7 @@ export default function MyAgentsView() {
           selected: selected === agent,
           replyPop: replyPop[agent] ?? null,
           clock: replay.playing ? replay.virtualTime : null,
+          operational: agent === 'uptime' ? operational.snapshot : null,
         },
       }),
     ),
@@ -329,7 +331,7 @@ export default function MyAgentsView() {
         </div>
       </header>
 
-      <OperationalStatus />
+      <OperationalStatus state={operational} />
 
       <div className="ma-canvas" ref={canvasRef}>
         {log.error === 'not_configured' && (
@@ -387,7 +389,7 @@ export default function MyAgentsView() {
         <div className="ma-drag-hint dim">карточки можно двигать</div>
       </div>
 
-      <AgentPanel agent={selected} runs={log.runs} onSelect={setSelected} />
+      <AgentPanel agent={selected} runs={log.runs} operational={operational} onSelect={setSelected} />
 
       <div className="ma-bottom">
         <Heatmap runs={log.runs} selectedDay={selectedDay} onSelectDay={setSelectedDay} />

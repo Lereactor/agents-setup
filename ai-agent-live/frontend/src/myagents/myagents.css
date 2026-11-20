@@ -1664,3 +1664,96 @@
   25% { transform: rotate(-2deg); }
   75% { transform: rotate(2deg); }
 }
+
+/* Uptime показывает живой статус, а не пустую историю LLM-запусков. */
+.uptime-card__summary {
+  font-weight: 600;
+}
+.uptime-live-ok {
+  color: #3fb950;
+}
+.uptime-live-warn {
+  color: #ff8a65;
+}
+.uptime-panel__live {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid #2b3448;
+  border-radius: 10px;
+  background: #141a28;
+}
+.uptime-panel__live.is-ok {
+  border-color: #285c3a;
+  background: #12251c;
+}
+.uptime-panel__live.is-down {
+  border-color: #63333b;
+}
+.uptime-panel__live.is-ok .ops-card__dot,
+.uptime-services .is-ok .ops-card__dot {
+  background: #3fb950;
+  box-shadow: 0 0 8px #3fb95088;
+}
+.uptime-panel__live.is-down .ops-card__dot,
+.uptime-services .is-down .ops-card__dot {
+  background: #ef4444;
+}
+.uptime-panel__live strong,
+.uptime-panel__live small {
+  display: block;
+}
+.uptime-panel__live small {
+  margin-top: 3px;
+  color: var(--fg-dim);
+}
+.uptime-services {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.uptime-services li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 0;
+  border-bottom: 1px solid #1b2131;
+}
+.uptime-services__name {
+  flex: 1;
+  min-width: 0;
+}
+.uptime-services__name strong,
+.uptime-services__name small,
+.uptime-services__result strong,
+.uptime-services__result small {
+  display: block;
+}
+.uptime-services__name small,
+.uptime-services__result small {
+  margin-top: 2px;
+  color: var(--fg-dim);
+  font-size: 10px;
+}
+.uptime-services__result {
+  text-align: right;
+}
+.uptime-services__result strong {
+  color: #3fb950;
+  font-size: 11px;
+}
+.uptime-services .is-down .uptime-services__result strong {
+  color: #ff7b72;
+}
+.uptime-panel__note {
+  margin-top: 16px;
+  padding: 11px 12px;
+  border: 1px solid #273147;
+  border-radius: 9px;
+  color: #aab3c7;
+  background: #111824;
+  font-size: 11px;
+  line-height: 1.5;
+}

@@ -4,7 +4,7 @@ import { MOSCOW_TIME_ZONE } from './stats'
 const STATUS_URL = 'https://shopping-listener.lev-3d7.workers.dev/status.json'
 const POLL_MS = 30_000
 
-interface ServiceStatus {
+export interface ServiceStatus {
   name: string
   ok: boolean
   down: boolean
@@ -13,7 +13,7 @@ interface ServiceStatus {
   failures: number
 }
 
-interface OperationalSnapshot {
+export interface OperationalSnapshot {
   updated_at: string
   worker: { ok: boolean }
   runner: {
@@ -27,19 +27,12 @@ interface OperationalSnapshot {
   paused: string[]
 }
 
-function StatusCard({ name, ok, detail }: { name: string; ok: boolean; detail: string }) {
-  return (
-    <div className={`ops-card ${ok ? 'is-ok' : 'is-down'}`}>
-      <span className="ops-card__dot" />
-      <div>
-        <strong>{name}</strong>
-        <small>{detail}</small>
-      </div>
-    </div>
-  )
+export interface OperationalStatusState {
+  snapshot: OperationalSnapshot | null
+  unavailable: boolean
 }
 
-export default function OperationalStatus() {
+export function useOperationalStatus(): OperationalStatusState {
   const [snapshot, setSnapshot] = useState<OperationalSnapshot | null>(null)
   const [unavailable, setUnavailable] = useState(false)
 
@@ -66,6 +59,23 @@ export default function OperationalStatus() {
     }
   }, [])
 
+  return { snapshot, unavailable }
+}
+
+function StatusCard({ name, ok, detail }: { name: string; ok: boolean; detail: string }) {
+  return (
+    <div className={`ops-card ${ok ? 'is-ok' : 'is-down'}`}>
+      <span className="ops-card__dot" />
+      <div>
+        <strong>{name}</strong>
+        <small>{detail}</small>
+      </div>
+    </div>
+  )
+}
+
+export default function OperationalStatus({ state }: { state: OperationalStatusState }) {
+  const { snapshot, unavailable } = state
   const services = snapshot?.runner.services.filter((service) => service.name !== 'Cloudflare Worker') ?? []
   return (
     <section className="ops-strip" aria-label="Живые статусы инфраструктуры">

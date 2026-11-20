@@ -1,14 +1,17 @@
 import { useMemo } from 'react'
 import { AGENT_ORDER, AGENTS, STATUS_LABEL } from './agents'
+import type { OperationalStatusState } from './OperationalStatus'
 import ReplyBubble from './ReplyBubble'
 import Sparkline from './Sparkline'
 import StepsTimeline from './StepsTimeline'
-import { avgDuration, formatDuration, formatTime, runsByDay, successRate, todayCounts } from './stats'
+import { avgDuration, formatAgo, formatDuration, formatTime, runsByDay, successRate, todayCounts } from './stats'
 import type { AgentId, AgentRun } from './types'
+import UptimePanel from './UptimePanel'
 
 interface Props {
   agent: AgentId | null
   runs: AgentRun[]
+  operational: OperationalStatusState
   onSelect: (agent: AgentId | null) => void
 }
 
@@ -17,8 +20,10 @@ function pct(value: number | null) {
 }
 
 /** Правая панель: сводка по системе или подробности выбранного агента. */
-export default function AgentPanel({ agent, runs, onSelect }: Props) {
+export default function AgentPanel({ agent, runs, operational, onSelect }: Props) {
   const own = useMemo(() => (agent ? runs.filter((r) => r.agent === agent) : runs), [agent, runs])
+
+  if (agent === 'uptime') return <UptimePanel operational={operational} onClose={() => onSelect(null)} />
 
   if (!agent) {
     const today = todayCounts(runs)
@@ -43,14 +48,34 @@ export default function AgentPanel({ agent, runs, onSelect }: Props) {
           {AGENT_ORDER.map((a) => {
             const mine = runs.filter((r) => r.agent === a)
             const last = mine[mine.length - 1]
+            const uptimeServices = a === 'uptime' ? operational.snapshot?.runner.services ?? [] : []
+            const uptimeHealthy = uptimeServices.filter((service) => service.ok && !service.down).length
+            const uptimeCheckedAt = uptimeServices.reduce<string | null>((latest, service) => {
+              if (!service.checked_at) return latest
+              return !latest || service.checked_at > latest ? service.checked_at : latest
+            }, null)
             return (
               <li key={a} onClick={() => onSelect(a)} style={{ ['--agent-color' as string]: AGENTS[a].color }}>
                 <span className="agent-panel__dot" />
                 <span className="agent-panel__name">
                   {AGENTS[a].emoji} {AGENTS[a].title}
                 </span>
-                <span className="dim">{mine.length} · {pct(successRate(mine))}</span>
-                <span className="dim agent-panel__last">{last ? formatTime(last.started_at) : 'нет запусков'}</span>
+                <span className="dim">
+                  {a === 'uptime'
+                    ? uptimeServices.length
+                      ? `${uptimeHealthy}/${uptimeServices.length} · ${uptimeHealthy === uptimeServices.length ? 'онлайн' : 'сбой'}`
+                      : 'статус…'
+                    : `${mine.length} · ${pct(successRate(mine))}`}
+                </span>
+                <span className="dim agent-panel__last">
+                  {a === 'uptime'
+                    ? uptimeCheckedAt
+                      ? `проверено ${formatAgo(uptimeCheckedAt)}`
+                      : 'получаем живой статус'
+                    : last
+                      ? formatTime(last.started_at)
+                      : 'нет запусков'}
+                </span>
               </li>
             )
           })}
