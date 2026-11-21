@@ -437,7 +437,7 @@ tech = [
     ("Мозг и слушатель", "Kimi K3 на VPS · Cloudflare Worker + Workers AI"),
     ("Данные", "MCP ВкусВилла, Туту, Aviasales · OpenStreetMap · Apify · API Суточно"),
     ("Документы и напоминания", "PDF/DOCX/TXT до 10 МБ, текст не в журнале · Москва UTC+3"),
-    ("Надзор, журнал и сайт", "Uptime без LLM · живой 3/3 и время проверки · Sheets + GitHub Pages"),
+    ("Надзор, журнал и сайт", "Uptime 3/3 · старый stale не перекрывает успех · Sheets + GitHub Pages"),
     ("Безопасность", "ключи — в секретах Cloudflare и runner.env; автоматических оплат нет"),
 ]
 yy = ex_top - 22

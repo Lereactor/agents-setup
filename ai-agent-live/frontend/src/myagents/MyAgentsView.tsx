@@ -234,12 +234,16 @@ export default function MyAgentsView() {
     (acc, agent) => {
       const ghost = replay.playing ? undefined : catchup[agent]
       const runs = ghost ? byAgent[agent].filter((r) => r.run_id !== ghost.run_id) : byAgent[agent]
-      const current = replay.playing
-        ? [...replayActive].reverse().find((r) => r.agent === agent) ?? null
-        : ghost ?? [...runs].reverse().find((r) => r.status === 'running' || r.status === 'stale') ?? null
       const last = replay.playing
         ? replayLast[agent] ?? null
         : [...runs].reverse().find((r) => r.status !== 'running' && r.status !== 'stale') ?? null
+      const candidate = replay.playing
+        ? [...replayActive].reverse().find((r) => r.agent === agent) ?? null
+        : ghost ?? [...runs].reverse().find((r) => r.status === 'running' || r.status === 'stale') ?? null
+      const current =
+        candidate?.status === 'stale' && last && Date.parse(candidate.started_at) < Date.parse(last.finished_at ?? last.started_at)
+          ? null
+          : candidate
       const active = current?.status === 'running' || (pulseUntil[agent] ?? 0) > now
       acc[agent] = { current, last, active }
       return acc
