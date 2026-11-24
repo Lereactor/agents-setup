@@ -434,7 +434,7 @@ tw = W - M - tx0
 box(tx0, bottom - 6, tw, ex_top - bottom + 14, PANEL, None)
 text(tx0 + 14, ex_top - 6, "ТЕХНИКА", "B", 10, MUTED)
 tech = [
-    ("Мозг и слушатель", "Kimi K3 на VPS · Cloudflare Worker + Workers AI"),
+    ("Мозг и слушатель", "Kimi K3 на VPS · Cloudflare Worker + Workers AI · голос проверен 24.11"),
     ("Данные", "MCP ВкусВилла, Туту, Aviasales · OpenStreetMap · Apify · API Суточно"),
     ("Документы и напоминания", "PDF/DOCX/TXT до 10 МБ, текст не в журнале · Москва UTC+3"),
     ("Надзор, журнал и сайт", "Uptime 3/3 · старый stale не перекрывает успех · Sheets + GitHub Pages"),

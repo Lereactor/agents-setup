@@ -223,7 +223,7 @@ node(cfx + 10, wk_y, cfw - 20, 84, "Слушатель (Worker)",
      "фильтр без AI: дубли, боты, «помощь», «включи…», слова-триггеры; без слов — один вопрос "
      "Workers AI; делит на задачи; «Принял» за 1–2 с; /admin для надзирателя", INK)
 badge(cfx + cfw - 72, wk_y + 70, "free")
-node(cfx + 10, cfy + 64, cfw - 20, 44, "Workers AI", "Whisper: голос → текст; Llama: «кому это?», если слов агентов нет", WAI)
+node(cfx + 10, cfy + 64, cfw - 20, 44, "Workers AI", "Whisper: голос → текст; Llama: «кому это?»; voice-check 24.11", WAI)
 badge(cfx + cfw - 60, cfy + 94, "whisper")
 node(cfx + 10, cfy + 10, cfw - 20, 46, "KV-хранилище",
      "дубли update_id, паузы агентов, запуски за 2 суток (для повтора)", INK)
