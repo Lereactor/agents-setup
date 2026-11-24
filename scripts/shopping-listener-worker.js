@@ -637,7 +637,8 @@ async function transcribeVoice(env, fileId) {
     throw new Error('voice file download failed: ' + audioResp.status);
   }
 
-  const audio = bytesToBase64(new Uint8Array(await audioResp.arrayBuffer()));
+  const audioBytes = new Uint8Array(await audioResp.arrayBuffer());
+  const audio = bytesToBase64(audioBytes);
   // подсказка словаря: без неё «ВкусВилл» слышится как «вкус фил», «отель» — как «этель».
   // Если модель подсказку не примет — распознаём как раньше, без неё.
   const hint =
@@ -659,6 +660,21 @@ async function transcribeVoice(env, fileId) {
   if (transcript.includes('\uFFFD')) {
     result = await run(false);
     transcript = ((result && result.text) || '').trim();
+  }
+  if (transcript.includes('\uFFFD')) {
+    result = await env.AI.run('@cf/deepgram/nova-3', {
+      audio: { body: audioBytes, contentType: 'audio/ogg' },
+      language: 'ru',
+      punctuate: true,
+      smart_format: true
+    });
+    transcript = (
+      (result && result.text) ||
+      (result && result.results && result.results.channels && result.results.channels[0] &&
+        result.results.channels[0].alternatives && result.results.channels[0].alternatives[0] &&
+        result.results.channels[0].alternatives[0].transcript) ||
+      ''
+    ).trim();
   }
   return transcript;
 }
