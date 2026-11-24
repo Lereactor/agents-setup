@@ -255,7 +255,9 @@ function wordsOf(text) {
 }
 
 function matchesTravelWords(text) {
-  return wordsOf(text).some(
+  // «ЖК Самолёт» — название жилого комплекса, а не запрос авиабилета.
+  const withoutResidentialComplex = (text || '').replace(/жк\s+самол[её]т[a-zа-яё0-9-]*/giu, '');
+  return wordsOf(withoutResidentialComplex).some(
     (word) =>
       TRAVEL_EXACT_WORDS.includes(word) || TRAVEL_WORD_PREFIXES.some((prefix) => word.startsWith(prefix))
   );
