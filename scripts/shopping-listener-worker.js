@@ -859,6 +859,19 @@ async function handleAdmin(env, action, body) {
   }
   // apify {send?} — расход кредита Apify и текст предупреждения; send: true — отправить как по расписанию.
   if (action === 'apify') return checkApifyCredit(env, { dryRun: body.send !== true });
+  if (action === 'telegram-webhook') {
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getWebhookInfo`);
+    const data = await response.json();
+    return { ok: response.ok && data.ok === true, webhook: data.result || null, error: data.description || undefined };
+  }
+  if (action === 'voice-check') {
+    try {
+      const transcript = await transcribeVoice(env, String(body.file_id || ''));
+      return { ok: true, transcript };
+    } catch (error) {
+      return { ok: false, error: String(error).slice(0, 500) };
+    }
+  }
   // route {text} — как слушатель разобрал бы текст (слова, затем модель), без запуска агентов.
   if (action === 'route') {
     const text = String(body.text || '');
