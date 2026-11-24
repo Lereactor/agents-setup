@@ -621,7 +621,7 @@ function base64ToBytes(value) {
 // Whisper на Workers AI. language: 'ru' — форсируем русский, чтобы модель
 // не тратила время на автоопределение языка и не путала короткие фразы
 // с похожими по фонетике языками.
-async function transcribeVoice(env, fileId) {
+async function transcribeVoice(env, fileId, options = {}) {
   const fileInfoResp = await fetch(
     `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`
   );
@@ -638,16 +638,21 @@ async function transcribeVoice(env, fileId) {
   }
 
   const audio = bytesToBase64(new Uint8Array(await audioResp.arrayBuffer()));
+  const model = options.model || '@cf/openai/whisper-large-v3-turbo';
   // подсказка словаря: без неё «ВкусВилл» слышится как «вкус фил», «отель» — как «этель».
   // Если модель подсказку не примет — распознаём как раньше, без неё.
   const hint =
     'ВкусВилл, продукты. Купи на Озоне, Wildberries, Яндекс Маркете. Билеты на поезд, самолёт. ' +
     'Забронируй отель, квартиру, коттедж посуточно на Суточно, Островке, Авито. Москва, Питер, Казань, Сочи.';
+  const params = { audio };
+  if (options.language !== false) params.language = 'ru';
+  if (options.hint !== false && model === '@cf/openai/whisper-large-v3-turbo') params.initial_prompt = hint;
   let result;
   try {
-    result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', { audio, language: 'ru', initial_prompt: hint });
+    result = await env.AI.run(model, params);
   } catch (err) {
-    result = await env.AI.run('@cf/openai/whisper-large-v3-turbo', { audio, language: 'ru' });
+    delete params.initial_prompt;
+    result = await env.AI.run(model, params);
   }
 
   return ((result && result.text) || '').trim();
@@ -866,7 +871,11 @@ async function handleAdmin(env, action, body) {
   }
   if (action === 'voice-check') {
     try {
-      const transcript = await transcribeVoice(env, String(body.file_id || ''));
+      const transcript = await transcribeVoice(env, String(body.file_id || ''), {
+        model: body.model,
+        hint: body.hint,
+        language: body.language
+      });
       return { ok: true, transcript };
     } catch (error) {
       return { ok: false, error: String(error).slice(0, 500) };
