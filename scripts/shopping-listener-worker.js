@@ -621,7 +621,7 @@ function base64ToBytes(value) {
 // Whisper на Workers AI. language: 'ru' — форсируем русский, чтобы модель
 // не тратила время на автоопределение языка и не путала короткие фразы
 // с похожими по фонетике языками.
-async function transcribeVoice(env, fileId, options = {}) {
+async function transcribeVoice(env, fileId) {
   const fileInfoResp = await fetch(
     `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`
   );
@@ -637,31 +637,30 @@ async function transcribeVoice(env, fileId, options = {}) {
     throw new Error('voice file download failed: ' + audioResp.status);
   }
 
-  const audioBytes = new Uint8Array(await audioResp.arrayBuffer());
-  const model = options.model || '@cf/openai/whisper-large-v3-turbo';
-  const audio =
-    model === '@cf/openai/whisper'
-      ? Array.from(audioBytes)
-      : model === '@cf/deepgram/nova-3'
-        ? { body: bytesToBase64(audioBytes), contentType: 'audio/ogg' }
-        : bytesToBase64(audioBytes);
+  const audio = bytesToBase64(new Uint8Array(await audioResp.arrayBuffer()));
   // подсказка словаря: без неё «ВкусВилл» слышится как «вкус фил», «отель» — как «этель».
   // Если модель подсказку не примет — распознаём как раньше, без неё.
   const hint =
     'ВкусВилл, продукты. Купи на Озоне, Wildberries, Яндекс Маркете. Билеты на поезд, самолёт. ' +
     'Забронируй отель, квартиру, коттедж посуточно на Суточно, Островке, Авито. Москва, Питер, Казань, Сочи.';
-  const params = { audio };
-  if (options.language !== false) params.language = 'ru';
-  if (options.hint !== false && model === '@cf/openai/whisper-large-v3-turbo') params.initial_prompt = hint;
+  const run = async (withHint) => {
+    const params = { audio, language: 'ru' };
+    if (withHint) params.initial_prompt = hint;
+    return env.AI.run('@cf/openai/whisper-large-v3-turbo', params);
+  };
   let result;
   try {
-    result = await env.AI.run(model, params);
+    result = await run(true);
   } catch (err) {
-    delete params.initial_prompt;
-    result = await env.AI.run(model, params);
+    result = await run(false);
   }
 
-  return ((result && result.text) || '').trim();
+  let transcript = ((result && result.text) || '').trim();
+  if (transcript.includes('\uFFFD')) {
+    result = await run(false);
+    transcript = ((result && result.text) || '').trim();
+  }
+  return transcript;
 }
 
 async function sendTelegramMessage(env, { chatId, text, replyToMessageId, businessConnectionId, disableWebPagePreview }) {
@@ -877,11 +876,7 @@ async function handleAdmin(env, action, body) {
   }
   if (action === 'voice-check') {
     try {
-      const transcript = await transcribeVoice(env, String(body.file_id || ''), {
-        model: body.model,
-        hint: body.hint,
-        language: body.language
-      });
+      const transcript = await transcribeVoice(env, String(body.file_id || ''));
       return { ok: true, transcript };
     } catch (error) {
       return { ok: false, error: String(error).slice(0, 500) };
