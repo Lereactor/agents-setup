@@ -621,7 +621,7 @@ function base64ToBytes(value) {
 // Whisper на Workers AI. language: 'ru' — форсируем русский, чтобы модель
 // не тратила время на автоопределение языка и не путала короткие фразы
 // с похожими по фонетике языками.
-async function transcribeVoice(env, fileId) {
+async function transcribeVoice(env, fileId, trace = null) {
   const fileInfoResp = await fetch(
     `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`
   );
@@ -657,9 +657,11 @@ async function transcribeVoice(env, fileId) {
   }
 
   let transcript = ((result && result.text) || '').trim();
+  if (trace) trace.whisper = transcript;
   if (transcript.includes('\uFFFD')) {
     result = await run(false);
     transcript = ((result && result.text) || '').trim();
+    if (trace) trace.whisperRetry = transcript;
   }
   if (transcript.includes('\uFFFD')) {
     result = await env.AI.run('@cf/deepgram/nova-3', {
@@ -668,6 +670,7 @@ async function transcribeVoice(env, fileId) {
       punctuate: true,
       smart_format: true
     });
+    if (trace) trace.deepgram = result;
     transcript = (
       (result && result.text) ||
       (result && result.results && result.results.channels && result.results.channels[0] &&
@@ -892,8 +895,9 @@ async function handleAdmin(env, action, body) {
   }
   if (action === 'voice-check') {
     try {
-      const transcript = await transcribeVoice(env, String(body.file_id || ''));
-      return { ok: true, transcript };
+      const trace = body.trace ? {} : null;
+      const transcript = await transcribeVoice(env, String(body.file_id || ''), trace);
+      return { ok: true, transcript, trace: trace || undefined };
     } catch (error) {
       return { ok: false, error: String(error).slice(0, 500) };
     }
