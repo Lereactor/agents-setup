@@ -639,7 +639,12 @@ async function transcribeVoice(env, fileId, options = {}) {
 
   const audioBytes = new Uint8Array(await audioResp.arrayBuffer());
   const model = options.model || '@cf/openai/whisper-large-v3-turbo';
-  const audio = model === '@cf/openai/whisper' ? Array.from(audioBytes) : bytesToBase64(audioBytes);
+  const audio =
+    model === '@cf/openai/whisper'
+      ? Array.from(audioBytes)
+      : model === '@cf/deepgram/nova-3'
+        ? { body: bytesToBase64(audioBytes), contentType: 'audio/ogg' }
+        : bytesToBase64(audioBytes);
   // подсказка словаря: без неё «ВкусВилл» слышится как «вкус фил», «отель» — как «этель».
   // Если модель подсказку не примет — распознаём как раньше, без неё.
   const hint =
